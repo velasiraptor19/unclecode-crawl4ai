@@ -60,16 +60,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest
-            type=raw,value=${{ env.INSTALL_TYPE }}
-            type=sha,prefix=sha-
-
       - name: Show selected build args
         run: |
           echo "INSTALL_TYPE=${INSTALL_TYPE}"
@@ -79,14 +69,36 @@ jobs:
             echo "There is no free GPU runner, and CUDA install may exceed the runner disk budget."
           fi
 
+      - name: Compute image tags
+        id: tags
+        run: |
+          IMAGE="${REGISTRY}/${IMAGE_NAME}"
+          SHORT_SHA="${GITHUB_SHA::7}"
+          if [ "${ENABLE_GPU}" = "true" ]; then
+            {
+              echo "tags<<EOF"
+              echo "${IMAGE}:${INSTALL_TYPE}-gpu"
+              echo "${IMAGE}:gpu"
+              echo "${IMAGE}:sha-${SHORT_SHA}-gpu"
+              echo "EOF"
+            } >> "${GITHUB_OUTPUT}"
+          else
+            {
+              echo "tags<<EOF"
+              echo "${IMAGE}:latest"
+              echo "${IMAGE}:${INSTALL_TYPE}"
+              echo "${IMAGE}:sha-${SHORT_SHA}"
+              echo "EOF"
+            } >> "${GITHUB_OUTPUT}"
+          fi
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.tags.outputs.tags }}
           build-args: |
             INSTALL_TYPE=${{ env.INSTALL_TYPE }}
             ENABLE_GPU=${{ env.ENABLE_GPU }}
