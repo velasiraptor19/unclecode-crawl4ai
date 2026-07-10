@@ -25,6 +25,7 @@ ENV PYTHONFAULTHANDLER=1 \
 ARG PYTHON_VERSION=3.12
 ARG INSTALL_TYPE=default
 ARG ENABLE_GPU=false
+ARG PRELOAD_MODELS=false
 ARG TARGETARCH
 
 # Redis version — pinned to a CVE-patched release by default.
@@ -156,15 +157,18 @@ RUN if [ "$INSTALL_TYPE" = "all" ] ; then \
     fi
 
 RUN if [ "$INSTALL_TYPE" = "all" ] ; then \
-        pip install "/tmp/project/[all]" && \
-        python -m crawl4ai.model_loader ; \
+        pip install "/tmp/project/[all]" ; \
     elif [ "$INSTALL_TYPE" = "torch" ] ; then \
         pip install "/tmp/project/[torch]" ; \
     elif [ "$INSTALL_TYPE" = "transformer" ] ; then \
-        pip install "/tmp/project/[transformer]" && \
-        python -m crawl4ai.model_loader ; \
+        pip install "/tmp/project/[transformer]" ; \
     else \
         pip install "/tmp/project" ; \
+    fi && \
+    if [ "$PRELOAD_MODELS" = "true" ] && { [ "$INSTALL_TYPE" = "all" ] || [ "$INSTALL_TYPE" = "transformer" ]; }; then \
+        python -m crawl4ai.model_loader ; \
+    else \
+        echo "Skipping model preload during image build"; \
     fi
 
 RUN pip install --no-cache-dir --upgrade pip && \
