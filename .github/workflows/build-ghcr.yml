@@ -1,0 +1,95 @@
+name: Build Crawl4AI Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      install_type:
+        description: Install type passed to Docker build
+        required: true
+        default: all
+        type: choice
+        options:
+          - default
+          - torch
+          - transformer
+          - all
+      enable_gpu:
+        description: Set Docker ENABLE_GPU build arg. Free GitHub runners do not provide GPUs.
+        required: true
+        default: false
+        type: boolean
+  push:
+    branches:
+      - main
+    paths:
+      - Dockerfile
+      - pyproject.toml
+      - setup.py
+      - requirements.txt
+      - deploy/docker/**
+      - crawl4ai/**
+      - .github/workflows/build-ghcr.yml
+      - .dockerignore
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  INSTALL_TYPE: ${{ inputs.install_type || 'all' }}
+  ENABLE_GPU: ${{ inputs.enable_gpu || false }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=raw,value=${{ env.INSTALL_TYPE }}
+            type=sha,prefix=sha-
+
+      - name: Show selected build args
+        run: |
+          echo "INSTALL_TYPE=${INSTALL_TYPE}"
+          echo "ENABLE_GPU=${ENABLE_GPU}"
+          if [ "${ENABLE_GPU}" = "true" ]; then
+            echo "ENABLE_GPU=true on free GitHub-hosted runners is best-effort only."
+            echo "There is no free GPU runner, and CUDA install may exceed the runner disk budget."
+          fi
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            INSTALL_TYPE=${{ env.INSTALL_TYPE }}
+            ENABLE_GPU=${{ env.ENABLE_GPU }}
+            USE_LOCAL=true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
