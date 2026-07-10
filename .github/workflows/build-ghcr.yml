@@ -102,7 +102,7 @@ jobs:
           build-args: |
             INSTALL_TYPE=${{ env.INSTALL_TYPE }}
             ENABLE_GPU=${{ env.ENABLE_GPU }}
-            PRELOAD_MODELS=false
+            PRELOAD_MODELS=true
             USE_LOCAL=true
           cache-from: type=gha
           cache-to: type=gha,mode=max
