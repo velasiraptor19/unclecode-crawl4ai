@@ -80,6 +80,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxfixes3 \
     libxrandr2 \
     libgbm1 \
+    libgl1 \
+    libegl1 \
+    libgles2 \
     libpango-1.0-0 \
     libcairo2 \
     libasound2 \
