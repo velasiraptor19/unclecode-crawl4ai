@@ -155,8 +155,7 @@ RUN pip install --no-cache-dir --upgrade pip \
 
 USER root
 
-RUN /home/appuser/.venv/bin/python -m playwright install-deps \
-    && /home/appuser/.venv/bin/python -m patchright install-deps chromium
+RUN /home/appuser/.venv/bin/python -m playwright install-deps
 
 USER appuser
 
@@ -165,13 +164,58 @@ RUN CRAWL4AI_MODE=api crawl4ai-setup \
     && python -m patchright install chromium \
     && crawl4ai-doctor
 
+# Validate the final appuser-owned runtime assets before root removes transient
+# setup state. Doctor covers a real Crawl4AI crawl; this adds all browsers,
+# Patchright, preload assets, and the declared CPU package contract.
+RUN INSTALL_TYPE="$INSTALL_TYPE" PRELOAD_MODELS="$PRELOAD_MODELS" ENABLE_GPU="$ENABLE_GPU" python - <<'PY'
+import importlib.util
+import os
+from pathlib import Path
+
+from playwright.sync_api import sync_playwright
+from patchright.sync_api import sync_playwright as sync_patchright
+
+home = Path(os.environ["HOME"])
+browser_root = Path(os.environ["PLAYWRIGHT_BROWSERS_PATH"])
+expected_assets = ("chromium-", "chromium_headless_shell-", "firefox-", "webkit-", "ffmpeg-")
+installed_assets = tuple(path.name for path in browser_root.iterdir())
+for prefix in expected_assets:
+    assert any(name.startswith(prefix) for name in installed_assets), f"missing Playwright asset: {prefix}"
+
+with sync_playwright() as playwright:
+    for browser_name in ("chromium", "firefox", "webkit"):
+        browser = getattr(playwright, browser_name).launch()
+        page = browser.new_page()
+        page.set_content(f"<title>{browser_name}</title>")
+        assert page.title() == browser_name
+        browser.close()
+
+with sync_patchright() as patchright:
+    browser = patchright.chromium.launch()
+    browser.close()
+
+if os.environ["PRELOAD_MODELS"] == "true" and os.environ["INSTALL_TYPE"] in {"all", "transformer"}:
+    assert (home / ".cache" / "huggingface").is_dir(), "preloaded Hugging Face models missing"
+if os.environ["INSTALL_TYPE"] in {"all", "torch"}:
+    assert (home / "nltk_data").is_dir(), "preloaded NLTK data missing"
+if os.environ["ENABLE_GPU"] == "false" and os.environ["INSTALL_TYPE"] in {"all", "torch"}:
+    import torch
+    assert not torch.cuda.is_available(), "CPU image unexpectedly has an available CUDA device"
+    for package in ("nvidia", "triton", "cuda"):
+        assert importlib.util.find_spec(package) is None, f"CPU image contains {package}"
+PY
+
 USER root
 
 # The Redis repository and the optional GPU repository each require a fresh
 # package index. Keep indexes until Playwright's root-only dependency install
 # has finished, then clean every apt cache exactly once.
 RUN apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /tmp/project /root/.cache/pip
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /root/.cache/pip \
+    && rm -rf /var/log/apt /var/log/dpkg.log /var/log/fontconfig.log /var/cache/fontconfig \
+    && rm -rf /tmp/* /var/tmp/* \
+    && find /home/appuser/.crawl4ai -mindepth 1 -maxdepth 1 -exec rm -rf {} + \
+    && chown -R appuser:appuser /home/appuser/.crawl4ai
 
 # Copy application code
 COPY --chown=root:root deploy/docker/* ${APP_HOME}/
