@@ -105,4 +105,4 @@ jobs:
             PRELOAD_MODELS=true
             USE_LOCAL=true
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=max,ignore-error=true,scope=${{ github.ref_name }}
