@@ -40,16 +40,14 @@ LABEL maintainer="unclecode"
 LABEL description="🔥🕷️ Crawl4AI: Open-source LLM Friendly Web Crawler & scraper"
 LABEL version="1.0"
 
-# Install curl and gnupg first (needed to add Redis repo)
-RUN apt-get update && apt-get install -y --no-install-recommends curl gnupg \
-    && rm -rf /var/lib/apt/lists/*
-
-# Add official Redis repository for security-patched versions
-RUN curl -fsSL https://packages.redis.io/gpg | gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl gnupg \
+    && curl -fsSL https://packages.redis.io/gpg | gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg \
     && echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb bookworm main" \
-    > /etc/apt/sources.list.d/redis.list
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
+    > /etc/apt/sources.list.d/redis.list \
+    && apt-get update \
+    && apt-get dist-upgrade -y \
+    && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     wget \
@@ -62,10 +60,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     redis-tools${REDIS_VERSION:+=$REDIS_VERSION} \
     redis-server${REDIS_VERSION:+=$REDIS_VERSION} \
     supervisor \
-    && apt-get clean \ 
-    && rm -rf /var/lib/apt/lists/*
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libnss3 \
     libnspr4 \
@@ -95,37 +89,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcairo2 \
     libasound2 \
     libatspi2.0-0 \
-    && apt-get clean \ 
-    && rm -rf /var/lib/apt/lists/*
-
-RUN apt-get update && apt-get dist-upgrade -y \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 RUN if [ "$ENABLE_GPU" = "true" ] && [ "$TARGETARCH" = "amd64" ] ; then \
-    sed -i 's/Components: main/Components: main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources && \
-    apt-get update && apt-get install -y --no-install-recommends \
-    nvidia-cuda-toolkit \
+    sed -i 's/Components: main/Components: main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources ; \
+fi \
+    && apt-get update \
+    && if [ "$ENABLE_GPU" = "true" ] && [ "$TARGETARCH" = "amd64" ] ; then \
+        apt-get install -y --no-install-recommends nvidia-cuda-toolkit ; \
+    else \
+        echo "Skipping NVIDIA CUDA Toolkit installation (unsupported platform or GPU disabled)" ; \
+    fi \
+    && if [ "$TARGETARCH" = "arm64" ]; then \
+        echo "🦾 Installing ARM-specific optimizations" ; \
+        apt-get install -y --no-install-recommends libopenblas-dev ; \
+    elif [ "$TARGETARCH" = "amd64" ]; then \
+        echo "🖥️ Installing AMD64-specific optimizations" ; \
+        apt-get install -y --no-install-recommends libomp-dev ; \
+    else \
+        echo "Skipping platform-specific optimizations (unsupported platform)" ; \
+    fi \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* ; \
-else \
-    echo "Skipping NVIDIA CUDA Toolkit installation (unsupported platform or GPU disabled)"; \
-fi
-
-RUN if [ "$TARGETARCH" = "arm64" ]; then \
-    echo "🦾 Installing ARM-specific optimizations"; \
-    apt-get update && apt-get install -y --no-install-recommends \
-    libopenblas-dev \
-    && apt-get clean \ 
-    && rm -rf /var/lib/apt/lists/*; \
-elif [ "$TARGETARCH" = "amd64" ]; then \
-    echo "🖥️ Installing AMD64-specific optimizations"; \
-    apt-get update && apt-get install -y --no-install-recommends \
-    libomp-dev \
-    && apt-get clean \ 
-    && rm -rf /var/lib/apt/lists/*; \
-else \
-    echo "Skipping platform-specific optimizations (unsupported platform)"; \
-fi
+    && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user and group
 RUN groupadd -r appuser && useradd --no-log-init -r -g appuser appuser
@@ -194,6 +180,13 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 RUN CRAWL4AI_MODE=api crawl4ai-setup
 
+USER root
+
+RUN /home/appuser/.venv/bin/python -m playwright install-deps \
+    && /home/appuser/.venv/bin/python -m patchright install-deps chromium
+
+USER appuser
+
 RUN playwright install
 
 RUN python -m patchright install chromium
@@ -204,8 +197,6 @@ RUN crawl4ai-doctor
 # This fixes permission issues with .cache/url_seeder and other runtime cache dirs
 RUN mkdir -p /home/appuser/.cache \
     && chown -R appuser:appuser /home/appuser/.cache
-
-USER root
 
 # Remove transient build artifacts and any leftover package index/cache files
 # after installation and validation. Keep installed packages intact.
