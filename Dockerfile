@@ -46,9 +46,7 @@ RUN apt-get update \
     && apt-get dist-upgrade -y \
     && apt-get install -y --no-install-recommends \
     build-essential \
-    curl \
     wget \
-    gnupg \
     git \
     cmake \
     pkg-config \
@@ -85,14 +83,12 @@ RUN apt-get update \
     libpango-1.0-0 \
     libcairo2 \
     libasound2 \
-    libatspi2.0-0 \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    libatspi2.0-0
 
 RUN if [ "$ENABLE_GPU" = "true" ] && [ "$TARGETARCH" = "amd64" ] ; then \
     sed -i 's/Components: main/Components: main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources ; \
+    apt-get update ; \
 fi \
-    && apt-get update \
     && if [ "$ENABLE_GPU" = "true" ] && [ "$TARGETARCH" = "amd64" ] ; then \
         apt-get install -y --no-install-recommends nvidia-cuda-toolkit ; \
     else \
@@ -106,9 +102,7 @@ fi \
         apt-get install -y --no-install-recommends libomp-dev ; \
     else \
         echo "Skipping platform-specific optimizations (unsupported platform)" ; \
-    fi \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    fi
 
 # Create a non-root user and group
 RUN groupadd -r appuser && useradd --no-log-init -r -g appuser appuser
@@ -164,8 +158,9 @@ RUN CRAWL4AI_MODE=api crawl4ai-setup \
 
 USER root
 
-# Remove transient build artifacts and any leftover package index/cache files
-# after installation and validation. Keep installed packages intact.
+# The Redis repository and the optional GPU repository each require a fresh
+# package index. Keep indexes until Playwright's root-only dependency install
+# has finished, then clean every apt cache exactly once.
 RUN apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/project /root/.cache/pip
 
