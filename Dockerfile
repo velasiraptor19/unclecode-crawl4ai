@@ -7,9 +7,6 @@ LABEL c4ai.version=$C4AI_VER
 
 # Set build arguments
 ARG APP_HOME=/app
-ARG GITHUB_REPO=https://github.com/unclecode/crawl4ai.git
-ARG GITHUB_BRANCH=main
-ARG USE_LOCAL=true
 
 ENV PYTHONFAULTHANDLER=1 \
     HOME=/home/appuser \
@@ -127,58 +124,31 @@ ENV PATH=/home/appuser/.venv/bin:$PATH
 
 WORKDIR ${APP_HOME}
 
-RUN echo '#!/bin/bash\n\
-if [ "$USE_LOCAL" = "true" ]; then\n\
-    echo "📦 Installing from local source..."\n\
-    pip install --no-cache-dir /tmp/project/\n\
-else\n\
-    echo "🌐 Installing from GitHub..."\n\
-    for i in {1..3}; do \n\
-        git clone --branch ${GITHUB_BRANCH} ${GITHUB_REPO} /tmp/crawl4ai && break || \n\
-        { echo "Attempt $i/3 failed! Taking a short break... ☕"; sleep 5; }; \n\
-    done\n\
-    pip install --no-cache-dir /tmp/crawl4ai\n\
-fi' > /tmp/install.sh && chmod +x /tmp/install.sh && chown appuser:appuser /tmp/install.sh
-
 COPY --chown=appuser:appuser . /tmp/project/
 
 USER appuser
 
-RUN pip install --no-cache-dir -r /tmp/project/deploy/docker/requirements.txt
-
-RUN if [ "$INSTALL_TYPE" = "all" ] ; then \
-        pip install --no-cache-dir \
-            torch \
-            torchvision \
-            torchaudio \
-            scikit-learn \
-            nltk \
-            transformers \
-            tokenizers && \
-        python -m nltk.downloader punkt stopwords ; \
-    fi
-
-RUN if [ "$INSTALL_TYPE" = "all" ] ; then \
-        pip install "/tmp/project/[all]" ; \
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r /tmp/project/deploy/docker/requirements.txt \
+    && if [ "$INSTALL_TYPE" = "all" ] ; then \
+        pip install --no-cache-dir "/tmp/project[all]" torchvision torchaudio ; \
     elif [ "$INSTALL_TYPE" = "torch" ] ; then \
-        pip install "/tmp/project/[torch]" ; \
+        pip install --no-cache-dir "/tmp/project[torch]" torchvision torchaudio ; \
     elif [ "$INSTALL_TYPE" = "transformer" ] ; then \
-        pip install "/tmp/project/[transformer]" ; \
+        pip install --no-cache-dir "/tmp/project[transformer]" ; \
     else \
-        pip install "/tmp/project" ; \
-    fi && \
-    if [ "$PRELOAD_MODELS" = "true" ] && { [ "$INSTALL_TYPE" = "all" ] || [ "$INSTALL_TYPE" = "transformer" ]; }; then \
+        pip install --no-cache-dir "/tmp/project" ; \
+    fi \
+    && if [ "$INSTALL_TYPE" = "all" ] || [ "$INSTALL_TYPE" = "torch" ] ; then \
+        python -m nltk.downloader punkt stopwords ; \
+    fi \
+    && if [ "$PRELOAD_MODELS" = "true" ] && { [ "$INSTALL_TYPE" = "all" ] || [ "$INSTALL_TYPE" = "transformer" ]; }; then \
         python -m crawl4ai.model_loader ; \
     else \
         echo "Skipping model preload during image build"; \
-    fi
-
-RUN pip install --no-cache-dir --upgrade pip && \
-    /tmp/install.sh && \
-    python -c "import crawl4ai; print('✅ crawl4ai is ready to rock!')" && \
-    python -c "from playwright.sync_api import sync_playwright; print('✅ Playwright is feeling dramatic!')"
-
-RUN CRAWL4AI_MODE=api crawl4ai-setup
+    fi \
+    && python -c "import crawl4ai; print('✅ crawl4ai is ready to rock!')" \
+    && python -c "from playwright.sync_api import sync_playwright; print('✅ Playwright is feeling dramatic!')"
 
 USER root
 
@@ -187,23 +157,17 @@ RUN /home/appuser/.venv/bin/python -m playwright install-deps \
 
 USER appuser
 
-RUN playwright install
-
-RUN python -m patchright install chromium
-
-RUN crawl4ai-doctor
-
-# Ensure all cache directories belong to appuser
-# This fixes permission issues with .cache/url_seeder and other runtime cache dirs
-RUN mkdir -p /home/appuser/.cache \
-    && chown -R appuser:appuser /home/appuser/.cache
+RUN CRAWL4AI_MODE=api crawl4ai-setup \
+    && playwright install \
+    && python -m patchright install chromium \
+    && crawl4ai-doctor
 
 USER root
 
 # Remove transient build artifacts and any leftover package index/cache files
 # after installation and validation. Keep installed packages intact.
 RUN apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /tmp/project /tmp/install.sh /tmp/crawl4ai /root/.cache/pip
+    && rm -rf /var/lib/apt/lists/* /tmp/project /root/.cache/pip
 
 # Copy application code
 COPY --chown=root:root deploy/docker/* ${APP_HOME}/

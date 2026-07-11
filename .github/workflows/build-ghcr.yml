@@ -103,6 +103,5 @@ jobs:
             INSTALL_TYPE=${{ env.INSTALL_TYPE }}
             ENABLE_GPU=${{ env.ENABLE_GPU }}
             PRELOAD_MODELS=true
-            USE_LOCAL=true
           cache-from: type=gha
           cache-to: type=gha,mode=max,ignore-error=true,scope=${{ github.ref_name }}
