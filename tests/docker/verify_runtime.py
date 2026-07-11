@@ -4,8 +4,8 @@ import asyncio
 import importlib.util
 import os
 from pathlib import Path
+from importlib.metadata import version
 
-import crawl4ai
 import torch
 from crawl4ai import AsyncWebCrawler, BrowserConfig
 from playwright.sync_api import sync_playwright
@@ -45,7 +45,7 @@ async def verify_crawl() -> None:
 
 
 def main() -> None:
-    assert crawl4ai.__version__ == "0.9.1"
+    assert version("Crawl4AI") == "0.9.1"
     assert (HOME / ".cache" / "huggingface").is_dir(), "preloaded Hugging Face model missing"
     assert (HOME / "nltk_data").is_dir(), "preloaded NLTK data missing"
     verify_browser_assets()
