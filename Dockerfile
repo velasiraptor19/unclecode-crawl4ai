@@ -74,7 +74,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcups2 \
     libdrm2 \
     libdbus-1-3 \
+    libcairo-gobject2 \
+    libgdk-pixbuf-2.0-0 \
+    libgtk-3-0 \
+    libpangocairo-1.0-0 \
     libxcb1 \
+    libxcursor1 \
     libxkbcommon0 \
     libx11-6 \
     libxcomposite1 \
@@ -187,9 +192,11 @@ RUN pip install --no-cache-dir --upgrade pip && \
     python -c "import crawl4ai; print('✅ crawl4ai is ready to rock!')" && \
     python -c "from playwright.sync_api import sync_playwright; print('✅ Playwright is feeling dramatic!')"
 
-RUN crawl4ai-setup
+RUN CRAWL4AI_MODE=api crawl4ai-setup
 
 RUN playwright install
+
+RUN python -m patchright install chromium
 
 RUN crawl4ai-doctor
 
