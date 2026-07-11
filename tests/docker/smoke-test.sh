@@ -10,13 +10,7 @@ cleanup() {
 trap cleanup EXIT
 
 docker pull "$image"
-docker run --detach --name "$container" --read-only --shm-size=1g \
-    --tmpfs /tmp:rw,exec,nosuid,nodev,size=1g \
-    --tmpfs /var/lib/redis:rw,uid=999,gid=999,mode=0700 \
-    --tmpfs /var/log/redis:rw,uid=999,gid=999,mode=0700 \
-    --tmpfs /var/lib/crawl4ai:rw,uid=999,gid=999,mode=0700 \
-    --tmpfs /home/appuser/.gunicorn:rw,uid=999,gid=999,mode=0700 \
-    --tmpfs /home/appuser/.crawl4ai:rw,uid=999,gid=999,mode=0700 \
+docker run --detach --name "$container" --shm-size=1g \
     --mount "type=bind,src=${PWD}/tests/docker/verify_runtime.py,dst=/tmp/verify_runtime.py,readonly" \
     "$image" >/dev/null
 

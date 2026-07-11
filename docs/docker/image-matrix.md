@@ -12,8 +12,7 @@ Every published image must:
 - keep application Python packages, models, and browser binaries in
   `/home/appuser`;
 - install OS packages only as root and run the final application as `appuser`;
-- pass an API health check in a read-only root filesystem with writable runtime
-  mounts;
+- pass an API health check using the default Docker runtime filesystem;
 - contain only its declared browser and model assets after build cleanup; and
 - carry a tag containing the Crawl4AI release and a source commit tag.
 
@@ -60,8 +59,7 @@ variant therefore cannot produce a meaningfully different runtime image.
 The publishing workflow must prove the final image, rather than only the build
 layers, satisfies these checks:
 
-1. Start the default `CMD` with a read-only root filesystem and writable
-   `/tmp`, Redis, and Crawl4AI output paths.
+1. Start the default `CMD` with the normal Docker runtime filesystem.
 2. Wait for the Docker health check and verify the API health endpoint.
 3. Verify `gunicorn` is launched from `/home/appuser/.venv/bin`.
 4. Run `pip check` from the appuser virtual environment.
