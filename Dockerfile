@@ -12,12 +12,15 @@ ARG GITHUB_BRANCH=main
 ARG USE_LOCAL=true
 
 ENV PYTHONFAULTHANDLER=1 \
+    HOME=/home/appuser \
     PYTHONHASHSEED=random \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_DEFAULT_TIMEOUT=100 \
+    PLAYWRIGHT_BROWSERS_PATH=/home/appuser/.cache/ms-playwright \
+    XDG_CACHE_HOME=/home/appuser/.cache \
     DEBIAN_FRONTEND=noninteractive \
     REDIS_HOST=localhost \
     REDIS_PORT=6379
@@ -122,8 +125,14 @@ fi
 # Create a non-root user and group
 RUN groupadd -r appuser && useradd --no-log-init -r -g appuser appuser
 
-# Create and set permissions for appuser home directory
-RUN mkdir -p /home/appuser && chown -R appuser:appuser /home/appuser
+# Create the appuser home, virtualenv, and cache directories up front so
+# Python packages, Playwright browsers, and preloaded models live in the same
+# user-owned location that runtime will use.
+RUN mkdir -p /home/appuser/.cache/ms-playwright /home/appuser/.crawl4ai ${APP_HOME} \
+    && python -m venv /home/appuser/.venv \
+    && chown -R appuser:appuser /home/appuser ${APP_HOME}
+
+ENV PATH=/home/appuser/.venv/bin:$PATH
 
 WORKDIR ${APP_HOME}
 
@@ -138,15 +147,13 @@ else\n\
         { echo "Attempt $i/3 failed! Taking a short break... ☕"; sleep 5; }; \n\
     done\n\
     pip install --no-cache-dir /tmp/crawl4ai\n\
-fi' > /tmp/install.sh && chmod +x /tmp/install.sh
+fi' > /tmp/install.sh && chmod +x /tmp/install.sh && chown appuser:appuser /tmp/install.sh
 
-COPY . /tmp/project/
+COPY --chown=appuser:appuser . /tmp/project/
 
-# Copy supervisor config first (might need root later, but okay for now)
-COPY deploy/docker/supervisord.conf .
+USER appuser
 
-COPY deploy/docker/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r /tmp/project/deploy/docker/requirements.txt
 
 RUN if [ "$INSTALL_TYPE" = "all" ] ; then \
         pip install --no-cache-dir \
@@ -182,11 +189,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 RUN crawl4ai-setup
 
-RUN playwright install --with-deps
-
-RUN mkdir -p /home/appuser/.cache/ms-playwright \
-    && cp -r /root/.cache/ms-playwright/chromium-* /home/appuser/.cache/ms-playwright/ \
-    && chown -R appuser:appuser /home/appuser/.cache/ms-playwright
+RUN playwright install
 
 RUN crawl4ai-doctor
 
@@ -195,16 +198,18 @@ RUN crawl4ai-doctor
 RUN mkdir -p /home/appuser/.cache \
     && chown -R appuser:appuser /home/appuser/.cache
 
+USER root
+
 # Remove transient build artifacts and any leftover package index/cache files
 # after installation and validation. Keep installed packages intact.
 RUN apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /tmp/project /tmp/install.sh /root/.cache/pip
+    && rm -rf /var/lib/apt/lists/* /tmp/project /tmp/install.sh /tmp/crawl4ai /root/.cache/pip
 
 # Copy application code
-COPY deploy/docker/* ${APP_HOME}/
+COPY --chown=root:root deploy/docker/* ${APP_HOME}/
 
 # copy the playground + any future static assets
-COPY deploy/docker/static ${APP_HOME}/static
+COPY --chown=root:root deploy/docker/static ${APP_HOME}/static
 
 # /app is root-owned and read-only to the runtime user: a write bug can no
 # longer plant a persistent self-RCE in the application directory.
