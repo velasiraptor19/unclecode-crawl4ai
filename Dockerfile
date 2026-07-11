@@ -27,6 +27,9 @@ ARG INSTALL_TYPE=default
 ARG ENABLE_GPU=false
 ARG PRELOAD_MODELS=false
 ARG TARGETARCH
+ARG TORCH_VERSION=2.13.0
+ARG TORCHVISION_VERSION=0.28.0
+ARG TORCHAUDIO_VERSION=2.11.0
 
 # Redis version — pinned to a CVE-patched release by default.
 # Override with --build-arg REDIS_VERSION="" for latest, or
@@ -124,6 +127,12 @@ USER appuser
 
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r /tmp/project/deploy/docker/requirements.txt \
+    && if { [ "$INSTALL_TYPE" = "all" ] || [ "$INSTALL_TYPE" = "torch" ]; } && [ "$ENABLE_GPU" = "false" ]; then \
+        pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
+            "torch==${TORCH_VERSION}+cpu" \
+            "torchvision==${TORCHVISION_VERSION}+cpu" \
+            "torchaudio==${TORCHAUDIO_VERSION}+cpu" ; \
+    fi \
     && if [ "$INSTALL_TYPE" = "all" ] ; then \
         pip install --no-cache-dir "/tmp/project[all]" torchvision torchaudio ; \
     elif [ "$INSTALL_TYPE" = "torch" ] ; then \

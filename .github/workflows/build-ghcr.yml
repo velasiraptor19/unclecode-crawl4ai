@@ -30,6 +30,7 @@ on:
       - crawl4ai/**
       - .github/workflows/build-ghcr.yml
       - .dockerignore
+      - tests/docker/**
 
 permissions:
   contents: read
@@ -38,6 +39,7 @@ permissions:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  C4AI_VERSION: 0.9.1
   INSTALL_TYPE: ${{ inputs.install_type || 'all' }}
   ENABLE_GPU: ${{ inputs.enable_gpu || false }}
 
@@ -77,18 +79,22 @@ jobs:
           if [ "${ENABLE_GPU}" = "true" ]; then
             {
               echo "tags<<EOF"
-              echo "${IMAGE}:${INSTALL_TYPE}-gpu"
-              echo "${IMAGE}:gpu"
-              echo "${IMAGE}:sha-${SHORT_SHA}-gpu"
+              echo "${IMAGE}:${INSTALL_TYPE}-gpu-preload"
+              echo "${IMAGE}:v${C4AI_VERSION}-${INSTALL_TYPE}-gpu-preload"
+              echo "${IMAGE}:sha-${SHORT_SHA}-${INSTALL_TYPE}-gpu-preload"
               echo "EOF"
+              echo "smoke_image=${IMAGE}:sha-${SHORT_SHA}-${INSTALL_TYPE}-gpu-preload"
             } >> "${GITHUB_OUTPUT}"
           else
             {
               echo "tags<<EOF"
               echo "${IMAGE}:latest"
               echo "${IMAGE}:${INSTALL_TYPE}"
-              echo "${IMAGE}:sha-${SHORT_SHA}"
+              echo "${IMAGE}:${INSTALL_TYPE}-cpu-preload"
+              echo "${IMAGE}:v${C4AI_VERSION}-${INSTALL_TYPE}-cpu-preload"
+              echo "${IMAGE}:sha-${SHORT_SHA}-${INSTALL_TYPE}-cpu-preload"
               echo "EOF"
+              echo "smoke_image=${IMAGE}:sha-${SHORT_SHA}-${INSTALL_TYPE}-cpu-preload"
             } >> "${GITHUB_OUTPUT}"
           fi
 
@@ -105,3 +111,7 @@ jobs:
             PRELOAD_MODELS=true
           cache-from: type=gha
           cache-to: type=gha,mode=max,ignore-error=true,scope=${{ github.ref_name }}
+
+      - name: Smoke test published CPU image
+        if: env.ENABLE_GPU == 'false'
+        run: tests/docker/smoke-test.sh "${{ steps.tags.outputs.smoke_image }}"
