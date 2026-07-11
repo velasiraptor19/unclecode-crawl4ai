@@ -198,6 +198,8 @@ RUN crawl4ai-doctor
 RUN mkdir -p /home/appuser/.cache \
     && chown -R appuser:appuser /home/appuser/.cache
 
+USER root
+
 # Remove transient build artifacts and any leftover package index/cache files
 # after installation and validation. Keep installed packages intact.
 RUN apt-get clean \
