@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.routing import Route, Mount
 from mcp.server.sse import SseServerTransport
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
 import mcp.types as t
 from mcp.server.lowlevel.server import Server, NotificationOptions
@@ -89,8 +90,8 @@ def attach_mcp(
     name: str | None = None,
     base_url: str,              # eg. "http://127.0.0.1:8020"
     timeout: float | None = None,  # httpx timeout in seconds; None = no limit
-) -> None:
-    """Call once after all routes are declared to expose WS+SSE MCP endpoints."""
+) -> StreamableHTTPSessionManager:
+    """Attach all MCP transports and return the HTTP manager for app lifespan."""
     server_name = name or app.title or "FastAPI-MCP"
     mcp = Server(server_name)
 
@@ -252,6 +253,17 @@ def attach_mcp(
     app.routes.append(Route(f"{base}/sse", endpoint=_MCPSseApp()))
     app.routes.append(Mount(f"{base}/messages", app=sse.handle_post_message))
 
+    # Streamable HTTP shares the same MCP Server and decorated tool set as the
+    # legacy transports. Stateless JSON responses suit a single-process API
+    # server without adding an external session/event-store dependency.
+    http_manager = StreamableHTTPSessionManager(
+        app=mcp,
+        event_store=None,
+        json_response=True,
+        stateless=True,
+    )
+    app.routes.append(Mount(f"{base}/http", app=http_manager.handle_request))
+
     # ── schema endpoint ───────────────────────────────────────
     @app.get(f"{base}/schema")
     async def _schema_endpoint():
@@ -260,6 +272,8 @@ def attach_mcp(
             "resources": [x.model_dump() for x in await _list_resources()],
             "resource_templates": [x.model_dump() for x in await _list_templates()],
         })
+
+    return http_manager
 
 
 # ── helpers ────────────────────────────────────────────────────

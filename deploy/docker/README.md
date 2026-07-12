@@ -281,10 +281,11 @@ MCP is an open protocol that standardizes how applications provide context to LL
 
 ### Connecting via MCP
 
-The Crawl4AI server exposes two MCP endpoints:
+The Crawl4AI server exposes three MCP endpoints:
 
 - **Server-Sent Events (SSE)**: `http://localhost:11235/mcp/sse`
 - **WebSocket**: `ws://localhost:11235/mcp/ws`
+- **Streamable HTTP**: `http://localhost:11235/mcp/http`
 
 ### Using with Claude Code
 
