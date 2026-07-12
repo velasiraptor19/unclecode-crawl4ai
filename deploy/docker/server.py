@@ -162,8 +162,11 @@ AsyncWebCrawler.arun = capped_arun
 # ───────────────────── FastAPI lifespan ──────────────────────
 
 
+MCP_HTTP_MANAGER = None
+
+
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def _runtime_lifespan(_: FastAPI):
     from crawler_pool import init_permanent
     from monitor import MonitorStats
     import monitor as monitor_module
@@ -228,6 +231,15 @@ async def lifespan(_: FastAPI):
         logger.error(f"Monitor cleanup failed: {e}")
 
     await close_all()
+
+
+@asynccontextmanager
+async def lifespan(app_: FastAPI):
+    if MCP_HTTP_MANAGER is None:
+        raise RuntimeError("MCP HTTP manager was not attached before startup")
+    async with MCP_HTTP_MANAGER.run():
+        async with _runtime_lifespan(app_):
+            yield
 
 async def _artifact_janitor():
     """Periodically reap expired / over-quota artifacts."""
@@ -1087,9 +1099,10 @@ async def get_context(
     return JSONResponse(results)
 
 
-# attach MCP layer (adds /mcp/ws, /mcp/sse, /mcp/schema)
+# Attach MCP layer (adds /mcp/ws, /mcp/sse, /mcp/messages, /mcp/schema,
+# and the modern Streamable HTTP endpoint /mcp/http).
 print(f"MCP server running on {config['app']['host']}:{config['app']['port']}")
-attach_mcp(
+MCP_HTTP_MANAGER = attach_mcp(
     app,
     # Internal MCP tool calls go over loopback to our own gated endpoints,
     # carrying a service token. Pin to 127.0.0.1 (config host may be 0.0.0.0,
