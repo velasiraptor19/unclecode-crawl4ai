@@ -262,7 +262,15 @@ def attach_mcp(
         json_response=True,
         stateless=True,
     )
-    app.routes.append(Mount(f"{base}/http", app=http_manager.handle_request))
+
+    class _MCPHttpApp:
+        async def __call__(self, scope, receive, send):
+            await http_manager.handle_request(scope, receive, send)
+
+    # Use an exact Route rather than Mount. Mount redirects /mcp/http to
+    # /mcp/http/, while Streamable HTTP clients must be able to POST to the
+    # configured endpoint without an HTTP redirect.
+    app.routes.append(Route(f"{base}/http", endpoint=_MCPHttpApp()))
 
     # ── schema endpoint ───────────────────────────────────────
     @app.get(f"{base}/schema")
