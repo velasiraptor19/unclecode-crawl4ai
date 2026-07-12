@@ -67,6 +67,11 @@ cover/
 
 # Django stuff:
 *.log
+
+# Locally archived GitHub Actions build evidence. The collector code and its
+# documentation are tracked; run-specific logs and summaries remain local.
+/build-logs/INDEX.md
+/build-logs/runs/
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
