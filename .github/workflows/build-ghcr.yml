@@ -204,7 +204,7 @@ jobs:
                 echo "Refusing to replace protected tag ${tag}: ${existing_digest} != ${CANDIDATE_DIGEST}." >&2
                 exit 1
               fi
-            elif ! grep -Eqi 'manifest unknown|no such manifest|404 Not Found' <<< "${inspection}"; then
+            elif ! grep -Eqi 'manifest unknown|no such manifest|404 Not Found|: not found$' <<< "${inspection}"; then
               echo "Refusing promotion after unexpected registry error for ${tag}: ${inspection}" >&2
               exit 1
             fi
