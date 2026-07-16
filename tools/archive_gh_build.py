@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import subprocess
 import sys
 from datetime import datetime
@@ -54,9 +55,18 @@ def first_match(lines: list[str], pattern: str) -> str | None:
 
 
 def write_summary(run: dict, lines: list[str], destination: Path) -> None:
-    smoke_image = first_match(lines, r'tests/docker/smoke-test\.sh "([^"]+)"')
+    smoke_image = (
+        first_match(lines, r"- Image: `([^`]+)`")
+        or first_match(lines, r"(ghcr\.io/[^ ]+:candidate-[^ ]+@sha256:[a-f0-9]{64})")
+        or first_match(lines, r'tests/docker/smoke-test\.sh "([^"]+)"')
+    )
     digest = first_match(lines, r"Digest: (sha256:[a-f0-9]+)")
-    build_args = first_match(lines, r"docker buildx build .*?(--build-arg .*?) --cache-from")
+    build_command = next(
+        (line for line in lines if "docker buildx build --build-arg" in line), ""
+    )
+    build_args = " ".join(re.findall(r"--build-arg ([^ ]+)", build_command)) or None
+    passed_checks = [line for line in lines if line.startswith("[PASS]")]
+    failed_checks = [line for line in lines if line.startswith("[FAIL]")]
     smoke_job = next(
         (
             job
@@ -112,6 +122,10 @@ def write_summary(run: dict, lines: list[str], destination: Path) -> None:
         ("Crawl runtime contract", smoke_result(any("runtime contract passed" in line for line in lines))),
         ("Unauthenticated MCP HTTP returns 401", smoke_result()),
         ("Authenticated Streamable HTTP MCP tool test", smoke_result()),
+        (
+            "Collecting candidate verification",
+            f"{len(passed_checks)} passed, {len(failed_checks)} failed",
+        ),
     ]
 
     job = run["jobs"][0]
@@ -148,6 +162,7 @@ def write_summary(run: dict, lines: list[str], destination: Path) -> None:
         "",
         "- `metadata.json`: unmodified GitHub run metadata.",
         "- `raw.log`: complete log downloaded through `gh run view --log`.",
+        "- `evidence/`: uploaded per-check logs, report, container log, and inspect output when available.",
     ])
     destination.write_text("\n".join(text) + "\n", encoding="utf-8")
 
@@ -196,6 +211,27 @@ def main() -> int:
     archive.mkdir(parents=True, exist_ok=True)
     (archive / "metadata.json").write_text(json.dumps(run, indent=2) + "\n", encoding="utf-8")
     (archive / "raw.log").write_text(raw_log, encoding="utf-8")
+    artifacts = json.loads(command(
+        "gh", "api", f"repos/{args.repo}/actions/runs/{args.run_id}/artifacts"
+    ))
+    evidence_artifact = next(
+        (
+            artifact for artifact in artifacts.get("artifacts", [])
+            if artifact["name"].startswith((
+                "aio-candidate-verification-",
+                "aio-existing-candidate-verification-",
+            ))
+        ),
+        None,
+    )
+    evidence_dir = archive / "evidence"
+    if evidence_artifact:
+        if evidence_dir.exists():
+            shutil.rmtree(evidence_dir)
+        command(
+            "gh", "run", "download", str(args.run_id), "--repo", args.repo,
+            "--name", evidence_artifact["name"], "--dir", str(evidence_dir),
+        )
     lines = [clean_line(line) for line in raw_log.splitlines()]
     write_summary(run, lines, archive / "summary.md")
     write_index(args.output)
