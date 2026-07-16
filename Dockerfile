@@ -252,7 +252,9 @@ with sync_patchright() as patchright:
 
 with Camoufox(
     headless=True,
+    os="linux",
     fingerprint_preset=True,
+    webgl_config=("Intel", "Intel(R) HD Graphics, or similar"),
     exclude_addons=list(DefaultAddons),
 ) as browser:
     page = browser.new_page()

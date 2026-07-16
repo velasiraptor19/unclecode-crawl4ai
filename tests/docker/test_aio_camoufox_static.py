@@ -55,6 +55,10 @@ def test_agent_tool_surface_contains_search_and_camoufox_fallbacks():
     assert "get_egress_proxy()" in WEB_TOOLS
     assert '"proxy": {"server": proxy_url}' in WEB_TOOLS
     assert "CAMOUFOX_SEM" in WEB_TOOLS
+    assert 'CAMOUFOX_WEBGL = ("Intel", "Intel(R) HD Graphics, or similar")' in WEB_TOOLS
+    assert '"os": "linux"' in WEB_TOOLS
+    assert '"webgl_config": CAMOUFOX_WEBGL' in WEB_TOOLS
+    assert 'webgl_config=("Intel", "Intel(R) HD Graphics, or similar")' in DOCKERFILE
     assert "def validate_url_scheme" in UTILS
     assert "validate_url_destination(url)" in UTILS
 

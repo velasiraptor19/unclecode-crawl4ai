@@ -21,6 +21,7 @@ from utils import validate_url_scheme
 router = APIRouter(tags=["aio-web"])
 token_dep = get_token_dependency()
 CAMOUFOX_SEM = asyncio.Semaphore(int(os.environ.get("CAMOUFOX_MAX_CONCURRENCY", "1")))
+CAMOUFOX_WEBGL = ("Intel", "Intel(R) HD Graphics, or similar")
 
 
 class WebSearchRequest(BaseModel):
@@ -52,7 +53,9 @@ def _camoufox_launch_options() -> dict:
     return {
         "headless": False,
         "virtual_display": os.environ.get("DISPLAY", ":99"),
+        "os": "linux",
         "fingerprint_preset": True,
+        "webgl_config": CAMOUFOX_WEBGL,
         "exclude_addons": list(DefaultAddons),
         "proxy": {"server": proxy_url},
     }
