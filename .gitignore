@@ -290,8 +290,15 @@ docs/apps/linkdin/debug*/
 docs/apps/linkdin/samples/insights/*
 
 scripts/
+!scripts/
+scripts/*
 !scripts/gen-sbom.sh
 !scripts/update_stats.py
+!scripts/aio_provenance.py
+!scripts/aio-provenance-resolve
+!scripts/aio-provenance-verify
+!scripts/aio-provenance-validate-spec
+!scripts/aio-provenance-verify-bootstrap
 
 
 # Databse files
