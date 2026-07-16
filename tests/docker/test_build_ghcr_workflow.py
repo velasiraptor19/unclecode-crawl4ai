@@ -179,6 +179,8 @@ def test_runtime_smoke_compares_installed_distributions_to_shipped_lock():
     assert "installed distributions absent from runtime lock" in RUNTIME_VERIFY
     assert "installed versions differ from runtime lock" in RUNTIME_VERIFY
     assert "locked direct runtime dependencies missing" in RUNTIME_VERIFY
+    assert 'versionless_sources == {"crawl4ai"}' in RUNTIME_VERIFY
+    assert 'package.get("version")' in RUNTIME_VERIFY
 
 
 def test_cleanup_removes_uv_and_caches_but_retains_os_toolkit():

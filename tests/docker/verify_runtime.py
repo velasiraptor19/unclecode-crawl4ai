@@ -26,27 +26,40 @@ def canonical_name(name: str) -> str:
 
 def verify_locked_environment() -> None:
     lock = tomllib.loads(RUNTIME_LOCK.read_text(encoding="utf-8"))
+    locked_names: set[str] = set()
     locked_versions: dict[str, set[str]] = defaultdict(set)
+    versionless_sources: set[str] = set()
     runtime_dependencies: set[str] = set()
     for package in lock["package"]:
         name = canonical_name(package["name"])
-        locked_versions[name].add(package["version"])
+        locked_names.add(name)
+        package_version = package.get("version")
+        if package_version is not None:
+            locked_versions[name].add(package_version)
+        else:
+            assert "directory" in package.get("source", {}), (
+                f"versionless lock package is not a local source: {name}"
+            )
+            versionless_sources.add(name)
         if name == "crawl4ai-aio-runtime":
             runtime_dependencies = {
                 canonical_name(dependency["name"])
                 for dependency in package.get("dependencies", ())
             }
+    assert versionless_sources == {"crawl4ai"}, (
+        f"unexpected versionless local lock packages: {sorted(versionless_sources)}"
+    )
 
     installed = {
         canonical_name(distribution.metadata["Name"]): distribution
         for distribution in distributions()
     }
-    unexpected = sorted(set(installed) - set(locked_versions))
+    unexpected = sorted(set(installed) - locked_names)
     assert not unexpected, f"installed distributions absent from runtime lock: {unexpected}"
 
     mismatches = []
     for name, distribution in installed.items():
-        if distribution.version not in locked_versions[name]:
+        if name in locked_versions and distribution.version not in locked_versions[name]:
             mismatches.append(
                 f"{name}=={distribution.version} not in {sorted(locked_versions[name])}"
             )
