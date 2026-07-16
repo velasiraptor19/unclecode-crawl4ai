@@ -37,6 +37,7 @@ docker exec --user appuser "$container" /home/appuser/.venv/bin/python /tmp/veri
 docker exec --user appuser "$container" /home/appuser/.venv/bin/python /tmp/verify_runtime.py
 docker exec --user appuser "$container" /home/appuser/.venv/bin/python /tmp/verify_searxng.py
 test "$(docker exec "$container" curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:11235/mcp/http)" = "401"
+docker exec "$container" curl -fsS http://127.0.0.1:6080/vnc.html >/dev/null
 docker exec --user appuser \
     --env "CRAWL4AI_API_TOKEN=${mcp_token}" \
     --env "CRAWL4AI_MCP_HTTP_URL=http://127.0.0.1:11235/mcp/http" \

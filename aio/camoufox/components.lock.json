@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "resolved_at": "2026-07-16",
+  "python_package": {
+    "name": "cloverlabs-camoufox",
+    "version": "0.6.0",
+    "wheel": "cloverlabs_camoufox-0.6.0-py3-none-any.whl",
+    "url": "https://files.pythonhosted.org/packages/f9/e9/a8f516af7f066c7877cb8384f3ed5b0c68d54885a1360a3d055aba0f334f/cloverlabs_camoufox-0.6.0-py3-none-any.whl",
+    "sha256": "9f7d26eb4e4f494bcd0f8bf043d5932cba11f7bd82c2795d595f5ff602a87744"
+  },
+  "browser": {
+    "repository": "daijro/camoufox",
+    "latest_release": "v150.0.2-beta.25",
+    "published_at": "2026-05-11T21:06:37Z",
+    "version": "150.0.2-alpha.26",
+    "asset_id": 419692983,
+    "asset": "camoufox-150.0.2-alpha.26-lin.x86_64.zip",
+    "size": 661687098,
+    "url": "https://github.com/daijro/camoufox/releases/download/v150.0.2-beta.25/camoufox-150.0.2-alpha.26-lin.x86_64.zip",
+    "sha256": "b146b98b0c2c41023716feef36451f319a534309f72c54584a4b0b88670f510b"
+  }
+}

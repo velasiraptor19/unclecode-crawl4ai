@@ -299,6 +299,7 @@ scripts/*
 !scripts/aio-provenance-verify
 !scripts/aio-provenance-validate-spec
 !scripts/aio-provenance-verify-bootstrap
+!scripts/aio-camoufox-verify
 
 
 # Databse files

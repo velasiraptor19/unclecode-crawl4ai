@@ -20,6 +20,9 @@ ARG AIO_SEARXNG_INDEX_DIGEST=unlocked
 ARG AIO_SEARXNG_PLATFORM_DIGEST=unlocked
 ARG AIO_SEARXNG_VERSION=unlocked
 ARG AIO_SEARXNG_SOURCE_COMMIT=unlocked
+ARG AIO_CAMOUFOX_PACKAGE_VERSION=unlocked
+ARG AIO_CAMOUFOX_BROWSER_VERSION=unlocked
+ARG AIO_CAMOUFOX_BROWSER_SHA256=unlocked
 ENV C4AI_VERSION=$C4AI_VER
 LABEL c4ai.version=$C4AI_VER \
     org.opencontainers.image.version=$C4AI_VER \
@@ -29,7 +32,10 @@ LABEL c4ai.version=$C4AI_VER \
     io.crawl4ai.aio.searxng.index-digest=$AIO_SEARXNG_INDEX_DIGEST \
     io.crawl4ai.aio.searxng.platform-digest=$AIO_SEARXNG_PLATFORM_DIGEST \
     io.crawl4ai.aio.searxng.version=$AIO_SEARXNG_VERSION \
-    io.crawl4ai.aio.searxng.source-commit=$AIO_SEARXNG_SOURCE_COMMIT
+    io.crawl4ai.aio.searxng.source-commit=$AIO_SEARXNG_SOURCE_COMMIT \
+    io.crawl4ai.aio.camoufox.package-version=$AIO_CAMOUFOX_PACKAGE_VERSION \
+    io.crawl4ai.aio.camoufox.browser-version=$AIO_CAMOUFOX_BROWSER_VERSION \
+    io.crawl4ai.aio.camoufox.browser-sha256=$AIO_CAMOUFOX_BROWSER_SHA256
 
 # Set build arguments
 ARG APP_HOME=/app
@@ -47,7 +53,9 @@ ENV PYTHONFAULTHANDLER=1 \
     DEBIAN_FRONTEND=noninteractive \
     REDIS_HOST=localhost \
     REDIS_PORT=6379 \
-    SEARXNG_SETTINGS_PATH=/etc/searxng/settings.yml
+    SEARXNG_SETTINGS_PATH=/etc/searxng/settings.yml \
+    DISPLAY=:99 \
+    CAMOUFOX_CACHE_DIR=/home/appuser/.cache/camoufox
 
 ARG PYTHON_VERSION=3.12
 ARG INSTALL_TYPE=all
@@ -55,6 +63,9 @@ ARG ENABLE_GPU=false
 ARG PRELOAD_MODELS=true
 ARG TARGETARCH
 ARG UV_VERSION=0.11.25
+ARG CAMOUFOX_BROWSER_VERSION=150.0.2-alpha.26
+ARG CAMOUFOX_BROWSER_URL=https://github.com/daijro/camoufox/releases/download/v150.0.2-beta.25/camoufox-150.0.2-alpha.26-lin.x86_64.zip
+ARG CAMOUFOX_BROWSER_SHA256=b146b98b0c2c41023716feef36451f319a534309f72c54584a4b0b88670f510b
 
 # Redis version — pinned to a CVE-patched release by default.
 # Override with --build-arg REDIS_VERSION="" for latest, or
@@ -87,6 +98,12 @@ RUN apt-get update \
     pkg-config \
     python3-dev \
     libjpeg-dev \
+    unzip \
+    xvfb \
+    fluxbox \
+    x11vnc \
+    novnc \
+    websockify \
     redis-tools${REDIS_VERSION:+=$REDIS_VERSION} \
     redis-server${REDIS_VERSION:+=$REDIS_VERSION} \
     supervisor \
@@ -153,8 +170,12 @@ RUN python -m pip install --no-cache-dir "uv==${UV_VERSION}"
 
 USER appuser
 
-RUN --mount=type=bind,source=.,target=/tmp/project,readonly \
-    UV_PROJECT_ENVIRONMENT=/home/appuser/.venv UV_CACHE_DIR=/tmp/uv-cache \
+RUN --mount=type=bind,source=.,target=/mnt/project,readonly \
+    --mount=type=cache,id=crawl4ai-aio-source,target=/tmp/project,uid=999,gid=999,mode=0700,sharing=locked \
+    find /tmp/project -mindepth 1 -maxdepth 1 -exec rm -rf {} + \
+    && cp -R --no-preserve=ownership /mnt/project/. /tmp/project/ \
+    && chmod -R u+w /tmp/project \
+    && UV_PROJECT_ENVIRONMENT=/home/appuser/.venv UV_CACHE_DIR=/tmp/uv-cache \
         uv sync --project /tmp/project/aio/runtime --frozen --no-dev --no-editable \
     && rm -rf /tmp/uv-cache \
     && python -m nltk.downloader punkt stopwords \
@@ -164,7 +185,27 @@ RUN --mount=type=bind,source=.,target=/tmp/project,readonly \
         echo "Skipping model preload during image build"; \
     fi \
     && python -c "import crawl4ai; print('✅ crawl4ai is ready to rock!')" \
-    && python -c "from playwright.sync_api import sync_playwright; print('✅ Playwright is feeling dramatic!')"
+    && python -c "from playwright.sync_api import sync_playwright; print('✅ Playwright is feeling dramatic!')" \
+    && find /tmp/project -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
+# Install the reviewed Camoufox browser archive directly into appuser's cache.
+# The package and browser are separate locks: PyPI supplies the Python API,
+# while this exact GitHub release asset supplies the Firefox-derived runtime.
+RUN set -eux; \
+    browser_dir="${CAMOUFOX_CACHE_DIR}/browsers/official/${CAMOUFOX_BROWSER_VERSION}"; \
+    mkdir -p "${browser_dir}"; \
+    curl -fL --retry 5 --retry-all-errors "${CAMOUFOX_BROWSER_URL}" -o /tmp/camoufox.zip; \
+    echo "${CAMOUFOX_BROWSER_SHA256}  /tmp/camoufox.zip" | sha256sum -c -; \
+    unzip -q /tmp/camoufox.zip -d "${browser_dir}"; \
+    rm -f /tmp/camoufox.zip; \
+    printf '%s\n' \
+      '{"version":"150.0.2","build":"alpha.26","prerelease":false,"asset_id":419692983,"asset_size":661687098,"asset_updated_at":"2026-05-13T23:38:29Z"}' \
+      > "${browser_dir}/version.json"; \
+    printf '%s\n' \
+      '{"active_version":"browsers/official/150.0.2-alpha.26","channel":"official/stable","pinned":"150.0.2-alpha.26"}' \
+      > "${CAMOUFOX_CACHE_DIR}/config.json"; \
+    touch "${CAMOUFOX_CACHE_DIR}/.0.5_FLAG"; \
+    python -c "from camoufox.pkgman import camoufox_path; print(camoufox_path(download_if_missing=False))"
 
 USER root
 
@@ -187,6 +228,8 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 from patchright.sync_api import sync_playwright as sync_patchright
+from camoufox.addons import DefaultAddons
+from camoufox.sync_api import Camoufox
 
 home = Path(os.environ["HOME"])
 browser_root = Path(os.environ["PLAYWRIGHT_BROWSERS_PATH"])
@@ -206,6 +249,15 @@ with sync_playwright() as playwright:
 with sync_patchright() as patchright:
     browser = patchright.chromium.launch()
     browser.close()
+
+with Camoufox(
+    headless=True,
+    fingerprint_preset=True,
+    exclude_addons=list(DefaultAddons),
+) as browser:
+    page = browser.new_page()
+    page.set_content("<title>camoufox</title>")
+    assert page.title() == "camoufox"
 
 if os.environ["PRELOAD_MODELS"] == "true" and os.environ["INSTALL_TYPE"] in {"all", "transformer"}:
     assert (home / ".cache" / "huggingface").is_dir(), "preloaded Hugging Face models missing"
@@ -275,7 +327,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 
 # Redis is in-container only (loopback + requirepass); never expose its port.
 # (was: EXPOSE 6379)
-EXPOSE 11235 8080
+EXPOSE 11235 8080 6080
 # Switch to the non-root user before starting the application
 USER appuser
 

@@ -10,15 +10,17 @@ For the v0.9.2 AIO web-stack phase, the only publishable contract is
 before the build. GPU rows below remain a future contract, not published
 artifacts from this workflow.
 
-The web-stack image adds the published-latest SearXNG source and Granian to the
-same appuser-owned Python environment. It exposes Crawl4AI on `11235` and
-SearXNG on `8080`. The upstream SearXNG Void Linux virtualenv is excluded;
+The web-stack image adds the published-latest SearXNG source, Granian, and the
+reviewed-latest Camoufox package/browser checkpoint to the same appuser-owned
+Python environment. It exposes Crawl4AI/MCP on `11235`, SearXNG on `8080`, and
+the Camoufox X11 session through noVNC on `6080`. The upstream SearXNG Void Linux virtualenv is excluded;
 only its digest-pinned source and precompressed static files cross the stage
 boundary.
 
 SearXNG intentionally binds all container interfaces and has no built-in API
 authentication in this phase. Port `8080` is for an isolated, trusted Docker
-network or LAN only; do not publish it directly to the Internet. The default
+network or LAN only; do not publish it directly to the Internet. The same rule
+applies to unauthenticated noVNC port `6080`. The default
 Compose root filesystem remains writable so operators can add models and
 packages without rebuilding. Operators may enable read-only mode after their
 runtime assets have been provisioned.
@@ -34,6 +36,8 @@ Every published image must:
 - pass an API health check using the default Docker runtime filesystem;
 - contain only its declared browser and model assets after build cleanup; and
 - carry a protected release tag and a protected source commit tag.
+- expose `web_search`, `camoufox_status`, `camoufox_read`, and
+  `camoufox_capture` through the authenticated MCP transport.
 
 ## Initial Variants
 
@@ -57,7 +61,9 @@ run against that candidate's immutable digest. Only after all checks pass does
 one metadata-only promotion attach mutable, v0.9.2 release, and full source-SHA
 tags to that exact digest; the image is not rebuilt during promotion. The image
 labels and workflow summary record the locked upstream index digest and release
-commit from `aio/provenance/components.lock.json`. Workflow concurrency
+commit from `aio/provenance/components.lock.json`, plus the Camoufox package
+version and browser asset digest from `aio/camoufox/components.lock.json`.
+Workflow concurrency
 serializes builds for the publishing branch, and promotion reads the
 authoritative remote branch tip again immediately before moving any tag.
 Therefore `aio-web-latest` and
@@ -78,6 +84,12 @@ It ships the lock as `/opt/crawl4ai/aio-runtime.uv.lock`; smoke verification
 compares every installed distribution version with that lock, rejects
 unlocked distributions, checks direct locked dependencies, and validates
 installed dependency metadata in addition to running `pip check`.
+
+`cloverlabs-camoufox==0.6.0` resolves with the same locked Playwright 1.61.0
+runtime, so a duplicate Python virtual environment is not created. Its reviewed
+Linux browser archive is downloaded from the exact GitHub release URL, checked
+against the locked SHA-256, and extracted only into appuser's Camoufox cache.
+No root Camoufox browser cache is created.
 
 The long form requested by operators,
 `install-type-all-with-cpu-preload-true-gpu-false-without-cuda-triton`, is a
@@ -121,6 +133,10 @@ layers, satisfies these checks:
    appuser Granian process.
 10. Verify `/usr/local/searxng/.venv` is absent and all installed Python
     distributions match the shipped AIO runtime lock.
+11. Verify Camoufox package/browser versions, appuser-only cache ownership, and
+    a real Camoufox read and screenshot through Streamable HTTP MCP.
+12. Verify Xvfb, Fluxbox, x11vnc, and noVNC run as appuser and `/vnc.html` is
+    reachable on port `6080`.
 
 ## Cleanup Rules
 

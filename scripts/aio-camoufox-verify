@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""Verify the pinned Camoufox package/browser contract, optionally online."""
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+import urllib.request
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+LOCK_PATH = ROOT / "aio" / "camoufox" / "components.lock.json"
+DOCKERFILE = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+PYPROJECT = (ROOT / "aio" / "runtime" / "pyproject.toml").read_text(encoding="utf-8")
+UV_LOCK = (ROOT / "aio" / "runtime" / "uv.lock").read_text(encoding="utf-8")
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+
+def fail(message: str) -> None:
+    raise ValueError(message)
+
+
+def load_lock() -> dict:
+    data = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
+    if set(data) != {"schema_version", "resolved_at", "python_package", "browser"}:
+        fail("Camoufox lock has unexpected or missing fields")
+    if data["schema_version"] != 1:
+        fail("unsupported Camoufox lock schema")
+    package = data["python_package"]
+    browser = data["browser"]
+    if package["name"] != "cloverlabs-camoufox" or not SHA256.fullmatch(package["sha256"]):
+        fail("invalid Camoufox Python package lock")
+    if browser["repository"] != "daijro/camoufox" or not SHA256.fullmatch(browser["sha256"]):
+        fail("invalid Camoufox browser lock")
+    if f'"cloverlabs-camoufox=={package["version"]}"' not in PYPROJECT:
+        fail("runtime project does not consume locked Camoufox package")
+    if f'name = "cloverlabs-camoufox"\nversion = "{package["version"]}"' not in UV_LOCK:
+        fail("uv.lock does not contain locked Camoufox package")
+    expected_docker_values = (
+        f"ARG CAMOUFOX_BROWSER_VERSION={browser['version']}",
+        f"ARG CAMOUFOX_BROWSER_URL={browser['url']}",
+        f"ARG CAMOUFOX_BROWSER_SHA256={browser['sha256']}",
+    )
+    for value in expected_docker_values:
+        if value not in DOCKERFILE:
+            fail(f"Dockerfile does not consume lock value: {value}")
+    return data
+
+
+def verify_online(data: dict) -> None:
+    package = data["python_package"]
+    with urllib.request.urlopen(
+        f"https://pypi.org/pypi/{package['name']}/json", timeout=30
+    ) as response:
+        pypi = json.load(response)
+    if pypi["info"]["version"] != package["version"]:
+        fail("locked Camoufox package is no longer PyPI latest")
+    wheel = next((item for item in pypi["urls"] if item["filename"] == package["wheel"]), None)
+    if not wheel or wheel["digests"]["sha256"] != package["sha256"] or wheel["url"] != package["url"]:
+        fail("locked Camoufox wheel differs from PyPI metadata")
+
+    browser = data["browser"]
+    release = json.loads(subprocess.run(
+        ["gh", "api", f"repos/{browser['repository']}/releases/latest"],
+        check=True, capture_output=True, text=True,
+    ).stdout)
+    if release["tag_name"] != browser["latest_release"]:
+        fail("locked Camoufox browser release is no longer GitHub latest")
+    asset = next((item for item in release["assets"] if item["name"] == browser["asset"]), None)
+    if not asset:
+        fail("locked Camoufox browser asset is missing")
+    if (
+        asset["id"] != browser["asset_id"]
+        or asset["size"] != browser["size"]
+        or asset["browser_download_url"] != browser["url"]
+        or asset.get("digest") != f"sha256:{browser['sha256']}"
+    ):
+        fail("locked Camoufox browser asset differs from GitHub metadata")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--online", action="store_true")
+    args = parser.parse_args()
+    try:
+        data = load_lock()
+        if args.online:
+            verify_online(data)
+    except (KeyError, OSError, ValueError, subprocess.CalledProcessError) as exc:
+        print(f"Camoufox provenance verification failed: {exc}", file=sys.stderr)
+        return 1
+    print("Camoufox package/browser provenance verified")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -207,7 +207,10 @@ def test_appuser_identity_is_reserved_before_apt_creates_system_users():
 
 def test_build_context_is_mounted_and_uv_cache_dies_in_install_layer():
     assert "COPY --chown=appuser:appuser . /tmp/project/" not in DOCKERFILE
-    install = DOCKERFILE.split("RUN --mount=type=bind,source=.,target=/tmp/project,readonly", 1)[1]
+    install = DOCKERFILE.split("RUN --mount=type=bind,source=.,target=/mnt/project,readonly", 1)[1]
     install = install.split("\n\nUSER root", 1)[0]
+    assert "type=cache,id=crawl4ai-aio-source,target=/tmp/project,uid=999,gid=999" in install
+    assert "cp -R --no-preserve=ownership /mnt/project/. /tmp/project/" in install
+    assert install.count("find /tmp/project -mindepth 1 -maxdepth 1 -exec rm -rf {} +") == 2
     assert "uv sync --project /tmp/project/aio/runtime --frozen" in install
     assert "rm -rf /tmp/uv-cache" in install

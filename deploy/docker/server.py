@@ -270,6 +270,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# AIO-only discovery and explicit Camoufox fallback tools. They share the
+# existing auth gate, MCP bridge, artifact store, and DNS-pinning egress proxy.
+from aio_web_tools import router as aio_web_router
+app.include_router(aio_web_router)
+
 # ── static playground ──────────────────────────────────────
 STATIC_DIR = pathlib.Path(__file__).parent / "static" / "playground"
 if not STATIC_DIR.exists():

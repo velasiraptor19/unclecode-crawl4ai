@@ -24,6 +24,7 @@ on:
       - uv.lock
       - aio/runtime/**
       - aio/searxng/**
+      - aio/camoufox/**
       - setup.py
       - requirements.txt
       - deploy/docker/**
@@ -35,6 +36,7 @@ on:
       - aio/provenance/**
       - scripts/aio-provenance-*
       - scripts/aio_provenance.py
+      - scripts/aio-camoufox-verify
       - tests/aio_provenance/**
 
 permissions:
@@ -82,6 +84,7 @@ jobs:
           scripts/aio-provenance-verify \
             --spec aio/provenance/components.json \
             --lock aio/provenance/components.lock.json
+          scripts/aio-camoufox-verify --online
           python3 - <<'PY' >> "${GITHUB_OUTPUT}"
           import json
 
@@ -90,6 +93,7 @@ jobs:
           crawl4ai_source = crawl4ai["evidence"]["source"]
           searxng = next(item for item in lock["components"] if item["name"] == "searxng")
           searxng_source = searxng["evidence"]["source"]
+          camoufox = json.load(open("aio/camoufox/components.lock.json", encoding="utf-8"))
           print(f"index_digest={crawl4ai['index_digest']}")
           print(f"platform_digest={crawl4ai['platform_digest']}")
           print(f"release_commit={crawl4ai_source['release_commit']}")
@@ -98,6 +102,9 @@ jobs:
           print(f"searxng_platform_digest={searxng['platform_digest']}")
           print(f"searxng_version={searxng['evidence']['version']}")
           print(f"searxng_source_commit={searxng_source['published_source_commit']}")
+          print(f"camoufox_package_version={camoufox['python_package']['version']}")
+          print(f"camoufox_browser_version={camoufox['browser']['version']}")
+          print(f"camoufox_browser_sha256={camoufox['browser']['sha256']}")
           PY
 
       - name: Set up Docker Buildx
@@ -151,6 +158,9 @@ jobs:
             AIO_SEARXNG_PLATFORM_DIGEST=${{ steps.provenance.outputs.searxng_platform_digest }}
             AIO_SEARXNG_VERSION=${{ steps.provenance.outputs.searxng_version }}
             AIO_SEARXNG_SOURCE_COMMIT=${{ steps.provenance.outputs.searxng_source_commit }}
+            AIO_CAMOUFOX_PACKAGE_VERSION=${{ steps.provenance.outputs.camoufox_package_version }}
+            AIO_CAMOUFOX_BROWSER_VERSION=${{ steps.provenance.outputs.camoufox_browser_version }}
+            AIO_CAMOUFOX_BROWSER_SHA256=${{ steps.provenance.outputs.camoufox_browser_sha256 }}
 
       - name: Run smoke, runtime, MCP, and browser tests against candidate digest
         shell: bash
@@ -244,6 +254,9 @@ jobs:
             echo "- Locked SearXNG platform: \`${{ steps.provenance.outputs.searxng_platform_digest }}\`"
             echo "- Locked SearXNG version: \`${{ steps.provenance.outputs.searxng_version }}\`"
             echo "- Locked SearXNG source commit: \`${{ steps.provenance.outputs.searxng_source_commit }}\`"
+            echo "- Locked Camoufox package: \`${{ steps.provenance.outputs.camoufox_package_version }}\`"
+            echo "- Locked Camoufox browser: \`${{ steps.provenance.outputs.camoufox_browser_version }}\`"
+            echo "- Locked Camoufox browser SHA-256: \`${{ steps.provenance.outputs.camoufox_browser_sha256 }}\`"
             echo
             echo "### Final tags"
             while IFS= read -r tag; do
