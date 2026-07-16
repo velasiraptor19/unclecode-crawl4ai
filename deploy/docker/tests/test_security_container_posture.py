@@ -40,6 +40,13 @@ def supervisord():
 
 
 class TestDockerfile:
+    def test_appuser_has_fixed_uid_and_gid(self, dockerfile):
+        assert "groupadd --system --gid 999 appuser" in dockerfile
+        assert re.search(
+            r"useradd .*--system --uid 999 --gid 999 --home-dir /home/appuser appuser",
+            dockerfile,
+        )
+
     def test_no_redis_expose(self, dockerfile):
         # No active EXPOSE 6379 line (commented references are fine).
         for line in dockerfile.splitlines():
@@ -88,6 +95,9 @@ class TestSupervisord:
 
 
 class TestCompose:
+    def test_runtime_user_matches_tmpfs_ownership(self, compose):
+        assert 'user: "999:999"' in compose
+
     def test_cap_drop_all(self, compose):
         assert "cap_drop" in compose and "ALL" in compose
 
@@ -102,7 +112,8 @@ class TestCompose:
         assert "shm_size" in compose
 
     def test_pids_limit(self, compose):
-        assert "pids_limit" in compose
+        assert re.search(r"pids_limit:\s*512", compose)
+        assert re.search(r"limits:\s*\n\s*memory:\s*4G\s*\n\s*pids:\s*512", compose)
 
     def test_read_only_runtime_tmpfs_are_appuser_owned(self, compose):
         assert "/var/lib/redis:uid=999,gid=999,mode=0700" in compose

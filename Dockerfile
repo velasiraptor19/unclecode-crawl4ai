@@ -2,8 +2,15 @@ FROM python:3.12-slim-bookworm AS build
 
 # C4ai version
 ARG C4AI_VER=0.9.2
+ARG SOURCE_COMMIT=unknown
+ARG AIO_PROVENANCE_INDEX_DIGEST=unlocked
+ARG AIO_PROVENANCE_RELEASE_COMMIT=unlocked
 ENV C4AI_VERSION=$C4AI_VER
-LABEL c4ai.version=$C4AI_VER
+LABEL c4ai.version=$C4AI_VER \
+    org.opencontainers.image.version=$C4AI_VER \
+    org.opencontainers.image.revision=$SOURCE_COMMIT \
+    io.crawl4ai.aio.provenance.index-digest=$AIO_PROVENANCE_INDEX_DIGEST \
+    io.crawl4ai.aio.provenance.release-commit=$AIO_PROVENANCE_RELEASE_COMMIT
 
 # Set build arguments
 ARG APP_HOME=/app
@@ -107,8 +114,9 @@ fi \
         echo "Skipping platform-specific optimizations (unsupported platform)" ; \
     fi
 
-# Create a non-root user and group
-RUN groupadd -r appuser && useradd --no-log-init -r -g appuser appuser
+# Keep the runtime identity aligned with Compose tmpfs ownership.
+RUN groupadd --system --gid 999 appuser \
+    && useradd --no-log-init --system --uid 999 --gid 999 --home-dir /home/appuser appuser
 
 # Create the appuser home, virtualenv, and cache directories up front so
 # Python packages, Playwright browsers, and preloaded models live in the same

@@ -1,20 +1,17 @@
-name: Build Crawl4AI Image
+name: Build Crawl4AI AIO Image
 
 on:
   workflow_dispatch:
     inputs:
       install_type:
-        description: Install type passed to Docker build
+        description: Future image variant selector; this release only accepts all
         required: true
         default: all
         type: choice
         options:
-          - default
-          - torch
-          - transformer
           - all
       enable_gpu:
-        description: Set Docker ENABLE_GPU build arg. Free GitHub runners do not provide GPUs.
+        description: Future GPU selector; this release only accepts false
         required: true
         default: false
         type: boolean
@@ -24,6 +21,7 @@ on:
     paths:
       - Dockerfile
       - pyproject.toml
+      - uv.lock
       - setup.py
       - requirements.txt
       - deploy/docker/**
@@ -31,6 +29,11 @@ on:
       - .github/workflows/build-ghcr.yml
       - .dockerignore
       - tests/docker/**
+      - tests/mcp/**
+      - aio/provenance/**
+      - scripts/aio-provenance-*
+      - scripts/aio_provenance.py
+      - tests/aio_provenance/**
 
 permissions:
   contents: read
@@ -44,74 +47,140 @@ env:
   ENABLE_GPU: ${{ inputs.enable_gpu || false }}
 
 jobs:
-  build:
+  build-test-promote:
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Require the tested release ref and variant
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" != "refs/heads/aio-published-v0.9.2-provenance" ]]; then
+            echo "Ref ${GITHUB_REF} cannot publish fixed v${C4AI_VERSION} tags." >&2
+            exit 1
+          fi
+          if [[ "${INSTALL_TYPE}" != "all" || "${ENABLE_GPU}" != "false" ]]; then
+            echo "Only INSTALL_TYPE=all, ENABLE_GPU=false, PRELOAD_MODELS=true is tested for v${C4AI_VERSION}." >&2
+            exit 1
+          fi
+
+      - name: Verify locked AIO provenance offline
+        id: provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/aio-provenance-verify \
+            --spec aio/provenance/components.json \
+            --lock aio/provenance/components.lock.json
+          python3 - <<'PY' >> "${GITHUB_OUTPUT}"
+          import json
+
+          lock = json.load(open("aio/provenance/components.lock.json", encoding="utf-8"))
+          component = next(item for item in lock["components"] if item["name"] == "crawl4ai")
+          release = component["evidence"]["release"]
+          print(f"index_digest={component['index_digest']}")
+          print(f"platform_digest={component['platform_digest']}")
+          print(f"release_commit={release['release_commit']}")
+          print(f"published_source_commit={release['published_source_commit']}")
+          PY
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Show selected build args
-        run: |
-          echo "INSTALL_TYPE=${INSTALL_TYPE}"
-          echo "ENABLE_GPU=${ENABLE_GPU}"
-          if [ "${ENABLE_GPU}" = "true" ]; then
-            echo "ENABLE_GPU=true on free GitHub-hosted runners is best-effort only."
-            echo "There is no free GPU runner, and CUDA install may exceed the runner disk budget."
-          fi
-
-      - name: Compute image tags
+      - name: Compute candidate and final tags
         id: tags
+        shell: bash
         run: |
-          IMAGE="${REGISTRY}/${IMAGE_NAME}"
-          SHORT_SHA="${GITHUB_SHA::7}"
-          if [ "${ENABLE_GPU}" = "true" ]; then
-            {
-              echo "tags<<EOF"
-              echo "${IMAGE}:${INSTALL_TYPE}-gpu-preload"
-              echo "${IMAGE}:v${C4AI_VERSION}-${INSTALL_TYPE}-gpu-preload"
-              echo "${IMAGE}:sha-${SHORT_SHA}-${INSTALL_TYPE}-gpu-preload"
-              echo "EOF"
-              echo "smoke_image=${IMAGE}:sha-${SHORT_SHA}-${INSTALL_TYPE}-gpu-preload"
-            } >> "${GITHUB_OUTPUT}"
-          else
-            {
-              echo "tags<<EOF"
-              echo "${IMAGE}:latest"
-              echo "${IMAGE}:${INSTALL_TYPE}"
-              echo "${IMAGE}:${INSTALL_TYPE}-cpu-preload"
-              echo "${IMAGE}:v${C4AI_VERSION}-${INSTALL_TYPE}-cpu-preload"
-              echo "${IMAGE}:sha-${SHORT_SHA}-${INSTALL_TYPE}-cpu-preload"
-              echo "EOF"
-              echo "smoke_image=${IMAGE}:sha-${SHORT_SHA}-${INSTALL_TYPE}-cpu-preload"
-            } >> "${GITHUB_OUTPUT}"
-          fi
+          set -euo pipefail
+          image="${REGISTRY}/${IMAGE_NAME}"
+          candidate="${image}:candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-all-cpu-preload"
+          {
+            echo "candidate=${candidate}"
+            echo "final_tags<<EOF"
+            echo "${image}:latest"
+            echo "${image}:all"
+            echo "${image}:all-cpu-preload"
+            echo "${image}:v${C4AI_VERSION}-all-cpu-preload"
+            echo "${image}:sha-${GITHUB_SHA}-all-cpu-preload"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
 
-      - name: Build and push
-        uses: docker/build-push-action@v6
+      - name: Build and push non-release candidate
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ${{ steps.tags.outputs.tags }}
+          tags: ${{ steps.tags.outputs.candidate }}
           build-args: |
-            INSTALL_TYPE=${{ env.INSTALL_TYPE }}
-            ENABLE_GPU=${{ env.ENABLE_GPU }}
+            INSTALL_TYPE=all
+            ENABLE_GPU=false
             PRELOAD_MODELS=true
+            SOURCE_COMMIT=${{ github.sha }}
+            AIO_PROVENANCE_INDEX_DIGEST=${{ steps.provenance.outputs.index_digest }}
+            AIO_PROVENANCE_RELEASE_COMMIT=${{ steps.provenance.outputs.release_commit }}
           cache-from: type=gha
           cache-to: type=gha,mode=max,ignore-error=true,scope=${{ github.ref_name }}
 
-      - name: Smoke test published CPU image
-        if: env.ENABLE_GPU == 'false'
-        run: tests/docker/smoke-test.sh "${{ steps.tags.outputs.smoke_image }}"
+      - name: Run smoke, runtime, MCP, and browser tests against candidate digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          tests/docker/smoke-test.sh \
+            "${{ steps.tags.outputs.candidate }}@${{ steps.build.outputs.digest }}"
+
+      - name: Promote exact tested digest to final tags
+        id: promote
+        shell: bash
+        env:
+          CANDIDATE_IMAGE: ${{ steps.tags.outputs.candidate }}
+          CANDIDATE_DIGEST: ${{ steps.build.outputs.digest }}
+          FINAL_TAGS: ${{ steps.tags.outputs.final_tags }}
+        run: |
+          set -euo pipefail
+          source_ref="${CANDIDATE_IMAGE}@${CANDIDATE_DIGEST}"
+          promotion_args=()
+          while IFS= read -r tag; do
+            [[ -n "${tag}" ]] && promotion_args+=(--tag "${tag}")
+          done <<< "${FINAL_TAGS}"
+          docker buildx imagetools create --prefer-index=false "${promotion_args[@]}" "${source_ref}"
+
+          while IFS= read -r tag; do
+            [[ -n "${tag}" ]] || continue
+            promoted_digest="sha256:$(docker buildx imagetools inspect "${tag}" --raw | sha256sum | cut -d ' ' -f 1)"
+            test "${promoted_digest}" = "${CANDIDATE_DIGEST}"
+          done <<< "${FINAL_TAGS}"
+          echo "digest=${CANDIDATE_DIGEST}" >> "${GITHUB_OUTPUT}"
+
+      - name: Record tested release evidence
+        shell: bash
+        env:
+          FINAL_TAGS: ${{ steps.tags.outputs.final_tags }}
+        run: |
+          {
+            echo "## Published Crawl4AI AIO v${C4AI_VERSION}"
+            echo
+            echo "- Tested candidate: \`${{ steps.tags.outputs.candidate }}@${{ steps.build.outputs.digest }}\`"
+            echo "- Promoted digest: \`${{ steps.promote.outputs.digest }}\`"
+            echo "- Locked upstream index: \`${{ steps.provenance.outputs.index_digest }}\`"
+            echo "- Locked upstream platform: \`${{ steps.provenance.outputs.platform_digest }}\`"
+            echo "- Locked release commit: \`${{ steps.provenance.outputs.release_commit }}\`"
+            echo "- Locked published source commit: \`${{ steps.provenance.outputs.published_source_commit }}\`"
+            echo
+            echo "### Final tags"
+            while IFS= read -r tag; do
+              [[ -n "${tag}" ]] && echo "- \`${tag}\`"
+            done <<< "${FINAL_TAGS}"
+          } >> "${GITHUB_STEP_SUMMARY}"

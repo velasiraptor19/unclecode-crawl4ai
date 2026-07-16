@@ -4,6 +4,12 @@ This document defines the Docker image contract for the v0.9.2 image work.
 The first implementation target is a fully tested CPU image. GPU images are
 separate artifacts and must not be inferred from a CPU image at runtime.
 
+For the v0.9.2 AIO provenance phase, the only publishable contract is
+`INSTALL_TYPE=all`, `ENABLE_GPU=false`, and `PRELOAD_MODELS=true`, from
+`refs/heads/aio-published-v0.9.2-provenance`. Other variants and refs fail
+before the build. GPU rows below remain a future contract, not published
+artifacts from this workflow.
+
 ## Image Contract
 
 Every published image must:
@@ -28,6 +34,24 @@ For each canonical suffix, publish a release tag such as
 `sha-<commit>-all-cpu-preload`. The short `all` tag is an explicit alias for
 the selected default variant, never an unspecified mixture of CPU and GPU
 dependencies.
+
+The GHCR workflow first publishes a non-release `candidate-<run>-<attempt>`
+tag. Smoke, package, Crawl4AI runtime, MCP, and Chromium/Firefox/WebKit checks
+run against that candidate's immutable digest. Only after all checks pass does
+one metadata-only promotion attach mutable, v0.9.2 release, and full source-SHA
+tags to that exact digest; the image is not rebuilt during promotion. The image
+labels and workflow summary record the locked upstream index digest and release
+commit from `aio/provenance/components.lock.json`.
+
+## v0.9.2 dependency lock identity
+
+The published v0.9.2 project metadata depends on
+`unclecode-litellm==1.81.13`. The repaired uv lock replaces the stale upstream
+`litellm>=1.53.1` identity with that published PyPI distribution. It also
+replaces stale `tf-playwright-stealth` with the declared
+`playwright-stealth>=2.0.0` distribution. The fork's published constraints move
+the transitive `openai` lock from 1.93.3 to 2.45.0 and add `fastuuid`; all
+third-party lock entries resolve from package registries.
 
 The long form requested by operators,
 `install-type-all-with-cpu-preload-true-gpu-false-without-cuda-triton`, is a

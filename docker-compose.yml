@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Shared configuration for all environments
 x-base-config: &base-config
   ports:
@@ -39,6 +37,7 @@ x-base-config: &base-config
     resources:
       limits:
         memory: 4G
+        pids: 512
       reservations:
         memory: 1G
   restart: unless-stopped
@@ -48,7 +47,7 @@ x-base-config: &base-config
     timeout: 10s
     retries: 3
     start_period: 40s
-  user: "appuser"
+  user: "999:999"
 
 services:
   crawl4ai:
