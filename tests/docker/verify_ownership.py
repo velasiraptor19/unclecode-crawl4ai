@@ -16,6 +16,8 @@ def main() -> None:
     assert HOME.stat().st_gid == EXPECTED_ID
     assert RUNTIME_DIR.stat().st_uid == EXPECTED_ID
     assert RUNTIME_DIR.stat().st_gid == EXPECTED_ID
+    assert not Path("/usr/local/bin/uv").exists(), "build-only uv binary leaked into final image"
+    assert not Path("/usr/local/bin/uvx").exists(), "build-only uvx binary leaked into final image"
 
     probe = RUNTIME_DIR / ".ownership-contract"
     probe.write_text("writable\n", encoding="ascii")

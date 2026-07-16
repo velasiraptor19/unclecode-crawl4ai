@@ -33,6 +33,15 @@ async def _fake_upstream():
 
 @pytest.mark.asyncio
 class TestPinningProxy:
+    async def test_loopback_url_is_identified_as_localhost(self):
+        proxy = PinningProxy()
+        await proxy.start()
+        try:
+            assert proxy.bound_host == "127.0.0.1"
+            assert proxy.url == f"http://localhost:{proxy.bound_port}"
+        finally:
+            await proxy.stop()
+
     async def test_connect_to_global_host_tunnels(self, monkeypatch):
         up, up_port = await _fake_upstream()
 

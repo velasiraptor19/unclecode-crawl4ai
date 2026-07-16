@@ -2,6 +2,7 @@
 
 import asyncio
 import importlib.util
+import json
 import os
 import re
 import tomllib
@@ -85,11 +86,38 @@ def verify_locked_environment() -> None:
     assert not broken, f"runtime dependency metadata is inconsistent: {broken}"
 
 
+def default_browser_manifest(package_name: str) -> dict[str, str]:
+    spec = importlib.util.find_spec(package_name)
+    assert spec and spec.submodule_search_locations, f"cannot locate {package_name} package"
+    package_root = Path(next(iter(spec.submodule_search_locations)))
+    manifest = json.loads(
+        (package_root / "driver" / "package" / "browsers.json").read_text(encoding="utf-8")
+    )
+    return {
+        browser["name"]: str(browser["revision"])
+        for browser in manifest["browsers"]
+        if browser.get("installByDefault")
+    }
+
+
 def verify_browser_assets() -> None:
-    expected = ("chromium-", "chromium_headless_shell-", "firefox-", "webkit-", "ffmpeg-")
-    installed = tuple(path.name for path in BROWSER_ROOT.iterdir())
-    for prefix in expected:
-        assert any(name.startswith(prefix) for name in installed), f"missing browser asset: {prefix}"
+    playwright_manifest = default_browser_manifest("playwright")
+    patchright_manifest = default_browser_manifest("patchright")
+    assert patchright_manifest == playwright_manifest, (
+        f"Playwright/Patchright browser revisions differ: "
+        f"{playwright_manifest} != {patchright_manifest}"
+    )
+    expected = {
+        f"{name.replace('-', '_')}-{revision}"
+        for name, revision in playwright_manifest.items()
+    }
+    prefixes = tuple(f"{name.replace('-', '_')}-" for name in playwright_manifest)
+    installed = {
+        path.name
+        for path in BROWSER_ROOT.iterdir()
+        if path.is_dir() and path.name.startswith(prefixes)
+    }
+    assert installed == expected, f"unexpected Playwright asset set: {sorted(installed)}"
 
 
 def verify_browsers() -> None:

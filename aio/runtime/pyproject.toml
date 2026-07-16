@@ -43,6 +43,8 @@ dependencies = [
     "cloverlabs-camoufox==0.6.0",
     # Camoufox Juggler rejects Playwright 1.61's viewport.isMobile field (upstream #653).
     "playwright==1.60.0",
+    # Share Playwright's exact browser revisions instead of downloading a second Chromium pair.
+    "patchright==1.60.0",
     "torch==2.13.0+cpu",
     "torchvision==0.28.0+cpu",
     "torchaudio==2.11.0+cpu",

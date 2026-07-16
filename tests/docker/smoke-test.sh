@@ -102,6 +102,14 @@ check_novnc() {
     docker exec "${container}" curl -fsS http://127.0.0.1:6080/vnc.html >/dev/null
 }
 
+check_runtime_log_contract() {
+    local logs
+    logs="$(docker logs "${container}" 2>&1)"
+    if grep -E 'LeakWarning: When using a proxy|FastAPIDeprecationWarning|shadows an attribute in parent "BaseModel"' <<< "${logs}"; then
+        return 1
+    fi
+}
+
 docker pull "${image}" 2>&1 | tee "${artifact_dir}/image_pull.log"
 pull_status=${PIPESTATUS[0]}
 if (( pull_status != 0 )); then
@@ -141,6 +149,7 @@ run_check "mcp_http_contract" docker exec --user appuser \
     --env "CRAWL4AI_API_TOKEN=${mcp_token}" \
     --env "CRAWL4AI_MCP_HTTP_URL=http://127.0.0.1:11235/mcp/http" \
     "${container}" /home/appuser/.venv/bin/python /tmp/test_mcp_http.py
+run_check "runtime_log_contract" check_runtime_log_contract
 
 capture_container_evidence
 write_report

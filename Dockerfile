@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1
 
+FROM ghcr.io/astral-sh/uv:0.11.25@sha256:1e3808aa9023d0980e7c15b1fa7c1ac16ff35925780cf5c459858b2d693f01a9 AS uv-bin
+
 FROM docker.io/searxng/searxng@sha256:1a196e52ef0aec52a462667e5c54030840f94865c13e1260004caa10cca6be49 AS searxng-source
 
 # Materialize a source-only filesystem snapshot. The final Debian image copies
@@ -13,6 +15,7 @@ FROM python:3.12-slim-bookworm@sha256:72d3d75f2639ab82b34b29390ad3d6e0827c775bef
 
 # C4ai version
 ARG C4AI_VER=0.9.2
+ARG AIO_IMAGE_REVISION=1
 ARG SOURCE_COMMIT=unknown
 ARG AIO_PROVENANCE_INDEX_DIGEST=unlocked
 ARG AIO_PROVENANCE_RELEASE_COMMIT=unlocked
@@ -27,6 +30,7 @@ ENV C4AI_VERSION=$C4AI_VER
 LABEL c4ai.version=$C4AI_VER \
     org.opencontainers.image.version=$C4AI_VER \
     org.opencontainers.image.revision=$SOURCE_COMMIT \
+    io.crawl4ai.aio.image-revision=$AIO_IMAGE_REVISION \
     io.crawl4ai.aio.provenance.index-digest=$AIO_PROVENANCE_INDEX_DIGEST \
     io.crawl4ai.aio.provenance.release-commit=$AIO_PROVENANCE_RELEASE_COMMIT \
     io.crawl4ai.aio.searxng.index-digest=$AIO_SEARXNG_INDEX_DIGEST \
@@ -62,7 +66,6 @@ ARG INSTALL_TYPE=all
 ARG ENABLE_GPU=false
 ARG PRELOAD_MODELS=true
 ARG TARGETARCH
-ARG UV_VERSION=0.11.25
 ARG CAMOUFOX_BROWSER_VERSION=150.0.2-alpha.26
 ARG CAMOUFOX_BROWSER_URL=https://github.com/daijro/camoufox/releases/download/v150.0.2-beta.25/camoufox-150.0.2-alpha.26-lin.x86_64.zip
 ARG CAMOUFOX_BROWSER_SHA256=b146b98b0c2c41023716feef36451f319a534309f72c54584a4b0b88670f510b
@@ -166,21 +169,20 @@ ENV PATH=/home/appuser/.venv/bin:$PATH
 
 WORKDIR ${APP_HOME}
 
-RUN python -m pip install --no-cache-dir "uv==${UV_VERSION}"
-
 USER appuser
 
 RUN --mount=type=bind,source=.,target=/mnt/project,readonly \
+    --mount=type=bind,from=uv-bin,source=/,target=/opt/uv-bin,readonly \
     --mount=type=cache,id=crawl4ai-aio-source,target=/tmp/project,uid=999,gid=999,mode=0700,sharing=locked \
     find /tmp/project -mindepth 1 -maxdepth 1 -exec rm -rf {} + \
     && cp -R --no-preserve=ownership /mnt/project/. /tmp/project/ \
     && chmod -R u+w /tmp/project \
     && UV_PROJECT_ENVIRONMENT=/home/appuser/.venv UV_CACHE_DIR=/tmp/uv-cache \
-        uv sync --project /tmp/project/aio/runtime --frozen --no-dev --no-editable \
+        /opt/uv-bin/uv sync --project /tmp/project/aio/runtime --frozen --no-dev --no-editable \
     && rm -rf /tmp/uv-cache \
-    && python -m nltk.downloader punkt stopwords \
+    && python -c "import nltk; assert nltk.download('punkt'); assert nltk.download('stopwords')" \
     && if [ "$PRELOAD_MODELS" = "true" ]; then \
-        python -m crawl4ai.model_loader ; \
+        python -c "from crawl4ai.model_loader import download_all_models; download_all_models()" ; \
     else \
         echo "Skipping model preload during image build"; \
     fi \
@@ -223,6 +225,7 @@ RUN CRAWL4AI_MODE=api crawl4ai-setup \
 # Patchright, preload assets, and the declared CPU package contract.
 RUN INSTALL_TYPE="$INSTALL_TYPE" PRELOAD_MODELS="$PRELOAD_MODELS" ENABLE_GPU="$ENABLE_GPU" python - <<'PY'
 import importlib.util
+import json
 import os
 import traceback
 from pathlib import Path
@@ -248,11 +251,38 @@ def check(name, operation):
         print(f"[PASS] {name}")
 
 
+def default_browser_manifest(package_name):
+    spec = importlib.util.find_spec(package_name)
+    assert spec and spec.submodule_search_locations, f"cannot locate {package_name} package"
+    package_root = Path(next(iter(spec.submodule_search_locations)))
+    manifest = json.loads(
+        (package_root / "driver" / "package" / "browsers.json").read_text(encoding="utf-8")
+    )
+    return {
+        browser["name"]: str(browser["revision"])
+        for browser in manifest["browsers"]
+        if browser.get("installByDefault")
+    }
+
+
 def verify_assets():
-    expected = ("chromium-", "chromium_headless_shell-", "firefox-", "webkit-", "ffmpeg-")
-    installed = tuple(path.name for path in browser_root.iterdir())
-    missing = [prefix for prefix in expected if not any(name.startswith(prefix) for name in installed)]
-    assert not missing, f"missing Playwright assets: {missing}"
+    playwright_manifest = default_browser_manifest("playwright")
+    patchright_manifest = default_browser_manifest("patchright")
+    assert patchright_manifest == playwright_manifest, (
+        f"Playwright/Patchright browser revisions differ: "
+        f"{playwright_manifest} != {patchright_manifest}"
+    )
+    expected = {
+        f"{name.replace('-', '_')}-{revision}"
+        for name, revision in playwright_manifest.items()
+    }
+    prefixes = tuple(f"{name.replace('-', '_')}-" for name in playwright_manifest)
+    installed = {
+        path.name
+        for path in browser_root.iterdir()
+        if path.is_dir() and path.name.startswith(prefixes)
+    }
+    assert installed == expected, f"unexpected Playwright asset set: {sorted(installed)}"
 
 
 def verify_playwright(browser_name):
@@ -322,7 +352,6 @@ USER root
 # package index. Keep indexes until Playwright's root-only dependency install
 # has finished, then clean every apt cache exactly once.
 RUN apt-get clean \
-    && python -m pip uninstall -y uv \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /root/.cache/pip \
     && rm -rf /var/log/apt /var/log/dpkg.log /var/log/fontconfig.log /var/cache/fontconfig \
     && rm -rf /tmp/* /var/tmp/* \
@@ -384,7 +413,9 @@ RUN cd /usr/local/searxng \
     && python -c "import granian, searx; print('SearXNG shared appuser runtime is ready')" \
     && test ! -e /usr/local/searxng/.venv \
     && cd ${APP_HOME} \
-    && python -c "import server; assert server.app; print('Crawl4AI server import is ready')"
+    && CRAWL4AI_API_TOKEN=build-import-check \
+       SECRET_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+       python -c "import server; assert server.app; print('Crawl4AI server import is ready')"
 
 # Start via entrypoint.sh, which resolves the socket-level auth/egress posture
 # (loopback unless a credential is present) and the redis password, then execs

@@ -22,10 +22,30 @@ status only after every applicable check has run:
 - direct REST calls for every default web tool
 - MCP authentication and Streamable HTTP calls for every default web tool
 - noVNC availability
+- absence of known actionable framework and Camoufox proxy warnings in runtime logs
 
 The Dockerfile's build-time browser verifier follows the same collecting model
 for Chromium, Firefox, WebKit, Patchright, Camoufox, preload assets, and the CPU
 package contract.
+
+Playwright system packages are resolved by the installed Playwright version's
+own `install-deps` command. Browser asset expectations are likewise read from
+the installed Playwright and Patchright `browsers.json` manifests. The build
+requires those manifests to agree and rejects missing or duplicate browser
+revisions in appuser's runtime cache.
+
+The pinned `uv` executable is mounted from a digest-locked tool stage only for
+the dependency sync step. It is not installed into the Python runtime and the
+ownership contract verifies that neither `uv` nor `uvx` leaks into the final
+image.
+
+## Image revisions
+
+The Crawl4AI application version and AIO packaging revision are independent.
+Immutable release tags use `v<C4AI_VERSION>-r<AIO_IMAGE_REVISION>-...`, while
+the OCI `org.opencontainers.image.version` label remains the application
+version. Any image-content change after an immutable release increments the AIO
+revision instead of replacing the previously published digest.
 
 ## Evidence
 

@@ -100,7 +100,7 @@ def test_existing_release_and_source_tags_fail_closed_on_digest_collision():
         'echo "EOF"', maxsplit=1
     )[0]
     protected_lines = {line.strip() for line in protected.splitlines()}
-    assert ":v${C4AI_VERSION}-aio-web-all-cpu-preload" in protected
+    assert ":v${C4AI_VERSION}-r${AIO_IMAGE_REVISION}-aio-web-all-cpu-preload" in protected
     assert ":sha-${GITHUB_SHA}-aio-web-all-cpu-preload" in protected
     for mutable in (
         'echo "${image}:aio-web-latest"',
@@ -184,7 +184,11 @@ def test_runtime_smoke_compares_installed_distributions_to_shipped_lock():
 
 
 def test_cleanup_removes_uv_and_caches_but_retains_os_toolkit():
-    assert "python -m pip uninstall -y uv" in DOCKERFILE
+    assert "ghcr.io/astral-sh/uv:0.11.25@sha256:" in DOCKERFILE
+    assert "from=uv-bin,source=/,target=/opt/uv-bin,readonly" in DOCKERFILE
+    assert "/opt/uv-bin/uv sync" in DOCKERFILE
+    assert 'pip install --no-cache-dir "uv==' not in DOCKERFILE
+    assert "pip uninstall -y uv" not in DOCKERFILE
     assert "rm -rf /tmp/* /var/tmp/*" in DOCKERFILE
     assert "apt-get purge" not in DOCKERFILE
     for package in (
@@ -214,5 +218,5 @@ def test_build_context_is_mounted_and_uv_cache_dies_in_install_layer():
     assert "type=cache,id=crawl4ai-aio-source,target=/tmp/project,uid=999,gid=999" in install
     assert "cp -R --no-preserve=ownership /mnt/project/. /tmp/project/" in install
     assert install.count("find /tmp/project -mindepth 1 -maxdepth 1 -exec rm -rf {} +") == 2
-    assert "uv sync --project /tmp/project/aio/runtime --frozen" in install
+    assert "/opt/uv-bin/uv sync --project /tmp/project/aio/runtime --frozen" in install
     assert "rm -rf /tmp/uv-cache" in install

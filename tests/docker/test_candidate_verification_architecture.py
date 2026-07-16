@@ -17,11 +17,21 @@ SMOKE = (ROOT / "tests/docker/smoke-test.sh").read_text(encoding="utf-8")
 MCP_TEST = (ROOT / "tests/mcp/test_mcp_http.py").read_text(encoding="utf-8")
 MCP_BRIDGE = (ROOT / "deploy/docker/mcp_bridge.py").read_text(encoding="utf-8")
 DOCKERFILE = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+JOB = (ROOT / "deploy/docker/job.py").read_text(encoding="utf-8")
+SERVER = (ROOT / "deploy/docker/server.py").read_text(encoding="utf-8")
 
 
 def test_workflows_are_valid_yaml():
     assert yaml.safe_load(BUILD_WORKFLOW)["jobs"]
     assert yaml.safe_load(VERIFY_WORKFLOW)["jobs"]
+
+
+def test_buildkit_and_node_actions_use_the_minimum_required_privilege():
+    assert "buildkitd-flags: --oci-worker-gc" in BUILD_WORKFLOW
+    assert "--allow-insecure-entitlement" not in BUILD_WORKFLOW
+    assert "docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a" in BUILD_WORKFLOW
+    assert "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f" in BUILD_WORKFLOW
+    assert "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f" in VERIFY_WORKFLOW
 
 
 def test_smoke_collects_independent_checks_before_failing():
@@ -37,11 +47,13 @@ def test_smoke_collects_independent_checks_before_failing():
         "mcp_auth_gate",
         "novnc_contract",
         "mcp_http_contract",
+        "runtime_log_contract",
     ):
         assert f'run_check "{check}"' in SMOKE
     assert "write_report" in SMOKE
     assert "failure_count > 0" in SMOKE
     assert 'tee "${artifact_dir}/${name}.log"' in SMOKE
+    assert "LeakWarning: When using a proxy" in SMOKE
 
 
 def test_build_runtime_checks_are_collecting_too():
@@ -50,6 +62,30 @@ def test_build_runtime_checks_are_collecting_too():
     assert 'check("patchright_chromium", verify_patchright)' in DOCKERFILE
     assert 'check("camoufox", verify_camoufox)' in DOCKERFILE
     assert 'raise AssertionError("build runtime failures:' in DOCKERFILE
+
+
+def test_browser_contract_rejects_duplicate_playwright_revisions():
+    assert 'default_browser_manifest("playwright")' in DOCKERFILE
+    assert 'default_browser_manifest("patchright")' in DOCKERFILE
+    assert "patchright_manifest == playwright_manifest" in DOCKERFILE
+    assert "browser.get(\"installByDefault\")" in DOCKERFILE
+    assert "installed == expected" in DOCKERFILE
+    assert "chromium-1228" not in DOCKERFILE
+
+
+def test_aio_packaging_revision_preserves_immutable_release_tags():
+    assert "AIO_IMAGE_REVISION: 2" in BUILD_WORKFLOW
+    assert "ARG AIO_IMAGE_REVISION=1" in DOCKERFILE
+    assert "io.crawl4ai.aio.image-revision=$AIO_IMAGE_REVISION" in DOCKERFILE
+    assert ":v${C4AI_VERSION}-r${AIO_IMAGE_REVISION}-aio-web-all-cpu-preload" in BUILD_WORKFLOW
+    assert ":v${C4AI_VERSION}-aio-web-all-cpu-preload" not in BUILD_WORKFLOW
+
+
+def test_server_import_is_free_of_framework_deprecation_warnings():
+    assert "regex=" not in SERVER
+    assert 'pattern="^(code|doc|all)$"' in SERVER
+    assert "schema_: Optional[str] = Field(default=None, alias=\"schema\")" in JOB
+    assert "payload.schema_" in JOB
 
 
 def test_main_workflow_collects_evidence_then_gates_promotion():

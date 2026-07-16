@@ -17,6 +17,7 @@ COMPOSE = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 WORKFLOW = (ROOT / ".github/workflows/build-ghcr.yml").read_text(encoding="utf-8")
 MCP_BRIDGE = (ROOT / "deploy/docker/mcp_bridge.py").read_text(encoding="utf-8")
 REST_VERIFY = (ROOT / "tests/docker/verify_aio_rest.py").read_text(encoding="utf-8")
+EGRESS_PROXY = (ROOT / "deploy/docker/egress_proxy.py").read_text(encoding="utf-8")
 
 
 def test_latest_reviewed_camoufox_package_and_browser_are_consumed():
@@ -27,13 +28,22 @@ def test_latest_reviewed_camoufox_package_and_browser_are_consumed():
     assert f'"cloverlabs-camoufox=={package["version"]}"' in PYPROJECT
     assert f'name = "cloverlabs-camoufox"\nversion = "{package["version"]}"' in UV_LOCK
     assert '"playwright==1.60.0"' in PYPROJECT
+    assert '"patchright==1.60.0"' in PYPROJECT
     assert 'name = "playwright"\nversion = "1.60.0"' in UV_LOCK
+    assert 'name = "patchright"\nversion = "1.60.0"' in UV_LOCK
     assert f"ARG CAMOUFOX_BROWSER_VERSION={browser['version']}" in DOCKERFILE
     assert f"ARG CAMOUFOX_BROWSER_URL={browser['url']}" in DOCKERFILE
     assert f"ARG CAMOUFOX_BROWSER_SHA256={browser['sha256']}" in DOCKERFILE
     assert 'sha256sum -c -' in DOCKERFILE
     assert "with Camoufox(" in DOCKERFILE
     assert 'page.title() == "camoufox"' in DOCKERFILE
+
+
+def test_playwright_and_patchright_share_one_browser_revision_set():
+    assert 'default_browser_manifest("playwright")' in DOCKERFILE
+    assert 'default_browser_manifest("patchright")' in DOCKERFILE
+    assert "patchright_manifest == playwright_manifest" in DOCKERFILE
+    assert "chromium-1228" not in DOCKERFILE
 
 
 def test_camoufox_payload_is_installed_once_as_appuser():
@@ -64,6 +74,7 @@ def test_agent_tool_surface_contains_search_and_camoufox_fallbacks():
     assert 'webgl_config=("Intel", "Intel(R) HD Graphics, or similar")' in DOCKERFILE
     assert "def validate_url_scheme" in UTILS
     assert "validate_url_destination(url)" in UTILS
+    assert 'public_host = "localhost" if self.bound_host == "127.0.0.1"' in EGRESS_PROXY
 
 
 def test_final_image_imports_server_as_runtime_user_during_build():
