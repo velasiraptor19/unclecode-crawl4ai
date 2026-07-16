@@ -1,0 +1,39 @@
+{
+  "components": [
+    {
+      "evidence": {
+        "method": "reviewed-release-fallback",
+        "missing_oci_labels": [
+          "org.opencontainers.image.version",
+          "org.opencontainers.image.revision",
+          "org.opencontainers.image.source"
+        ],
+        "oci": {
+          "revision": null,
+          "source": null,
+          "version": null
+        },
+        "release": {
+          "is_rebuild": false,
+          "published_source_commit": "7e801521428ee12509994d39151006f64055ebe3",
+          "release_commit": "7e801521428ee12509994d39151006f64055ebe3",
+          "release_tag": "v0.9.2",
+          "repository": "unclecode/crawl4ai"
+        },
+        "version": "0.9.2"
+      },
+      "index_digest": "sha256:bd36741e7bdd35ddc1a05d9183e1d6d8cefb61dd640d944a25d026b76e917690",
+      "index_manifest_base64": "ewogICJzY2hlbWFWZXJzaW9uIjogMiwKICAibWVkaWFUeXBlIjogImFwcGxpY2F0aW9uL3ZuZC5vY2kuaW1hZ2UuaW5kZXgudjEranNvbiIsCiAgIm1hbmlmZXN0cyI6IFsKICAgIHsKICAgICAgIm1lZGlhVHlwZSI6ICJhcHBsaWNhdGlvbi92bmQub2NpLmltYWdlLm1hbmlmZXN0LnYxK2pzb24iLAogICAgICAiZGlnZXN0IjogInNoYTI1NjplZGVmYTU3NGRlYTNiZWFmYmE3NTIxYzUxOTViNWVlNTAxN2U3NzI5NmVmNDI5YWU0YThlNzE1ODVjNzExMTE2IiwKICAgICAgInNpemUiOiA2MzkyLAogICAgICAicGxhdGZvcm0iOiB7CiAgICAgICAgImFyY2hpdGVjdHVyZSI6ICJhbWQ2NCIsCiAgICAgICAgIm9zIjogImxpbnV4IgogICAgICB9CiAgICB9LAogICAgewogICAgICAibWVkaWFUeXBlIjogImFwcGxpY2F0aW9uL3ZuZC5vY2kuaW1hZ2UubWFuaWZlc3QudjEranNvbiIsCiAgICAgICJkaWdlc3QiOiAic2hhMjU2OmJjZjc0Y2EwZmI0ODE0ZTcyMmY3MmYwYzIwN2U3Yjk5Y2FjZWI0ZTY0NWI4MjdhZmYzNDBlNjhkNzZjMDIwMTQiLAogICAgICAic2l6ZSI6IDYzOTksCiAgICAgICJwbGF0Zm9ybSI6IHsKICAgICAgICAiYXJjaGl0ZWN0dXJlIjogImFybTY0IiwKICAgICAgICAib3MiOiAibGludXgiCiAgICAgIH0KICAgIH0sCiAgICB7CiAgICAgICJtZWRpYVR5cGUiOiAiYXBwbGljYXRpb24vdm5kLm9jaS5pbWFnZS5tYW5pZmVzdC52MStqc29uIiwKICAgICAgImRpZ2VzdCI6ICJzaGEyNTY6MjNmNjU4ZDkxOWVlMjA2OGQxODM5OWZiYWE1MTI1YzBhYTFhNWYyYmJkYzhkZDMyMmFiZDlkMGEzZjNkZGFiNSIsCiAgICAgICJzaXplIjogNTY2LAogICAgICAiYW5ub3RhdGlvbnMiOiB7CiAgICAgICAgInZuZC5kb2NrZXIucmVmZXJlbmNlLmRpZ2VzdCI6ICJzaGEyNTY6ZWRlZmE1NzRkZWEzYmVhZmJhNzUyMWM1MTk1YjVlZTUwMTdlNzcyOTZlZjQyOWFlNGE4ZTcxNTg1YzcxMTExNiIsCiAgICAgICAgInZuZC5kb2NrZXIucmVmZXJlbmNlLnR5cGUiOiAiYXR0ZXN0YXRpb24tbWFuaWZlc3QiCiAgICAgIH0sCiAgICAgICJwbGF0Zm9ybSI6IHsKICAgICAgICAiYXJjaGl0ZWN0dXJlIjogInVua25vd24iLAogICAgICAgICJvcyI6ICJ1bmtub3duIgogICAgICB9CiAgICB9LAogICAgewogICAgICAibWVkaWFUeXBlIjogImFwcGxpY2F0aW9uL3ZuZC5vY2kuaW1hZ2UubWFuaWZlc3QudjEranNvbiIsCiAgICAgICJkaWdlc3QiOiAic2hhMjU2OjExY2IwMzE3YjQ2MzcxZDY5ZThjNzBiYjcxNzdkMDNjMTYxN2JjZTkyYWVkZmZmOTQyM2NlZDBjOTc5ZjkyNTAiLAogICAgICAic2l6ZSI6IDU2NiwKICAgICAgImFubm90YXRpb25zIjogewogICAgICAgICJ2bmQuZG9ja2VyLnJlZmVyZW5jZS5kaWdlc3QiOiAic2hhMjU2OmJjZjc0Y2EwZmI0ODE0ZTcyMmY3MmYwYzIwN2U3Yjk5Y2FjZWI0ZTY0NWI4MjdhZmYzNDBlNjhkNzZjMDIwMTQiLAogICAgICAgICJ2bmQuZG9ja2VyLnJlZmVyZW5jZS50eXBlIjogImF0dGVzdGF0aW9uLW1hbmlmZXN0IgogICAgICB9LAogICAgICAicGxhdGZvcm0iOiB7CiAgICAgICAgImFyY2hpdGVjdHVyZSI6ICJ1bmtub3duIiwKICAgICAgICAib3MiOiAidW5rbm93biIKICAgICAgfQogICAgfQogIF0KfQ==",
+      "name": "crawl4ai",
+      "platform": {
+        "architecture": "amd64",
+        "os": "linux"
+      },
+      "platform_digest": "sha256:edefa574dea3beafba7521c5195b5ee5017e77296ef429ae4a8e71585c711116",
+      "requested_image": "unclecode/crawl4ai:latest",
+      "resolved_image": "unclecode/crawl4ai@sha256:bd36741e7bdd35ddc1a05d9183e1d6d8cefb61dd640d944a25d026b76e917690"
+    }
+  ],
+  "schema_version": 1,
+  "status": "ready"
+}

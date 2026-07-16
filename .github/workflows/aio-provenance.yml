@@ -1,0 +1,39 @@
+name: AIO provenance
+
+on:
+  pull_request:
+    paths: [aio/provenance/**, scripts/aio-provenance-*, scripts/aio_provenance.py, tests/aio_provenance/**, .github/workflows/aio-provenance.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests-and-spec:
+    runs-on: ubuntu-latest
+    outputs:
+      lock_ready: ${{ steps.state.outputs.ready }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: python3 -m unittest discover -s tests/aio_provenance -p 'test_*.py' -v
+      - run: scripts/aio-provenance-validate-spec --spec aio/provenance/components.json
+      - id: state
+        name: Validate declared lock state
+        run: |
+          state=$(python3 -c 'import json; print(json.load(open("aio/provenance/components.json"))["lock_state"])')
+          if [ "$state" = ready ]; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          else
+            scripts/aio-provenance-verify-bootstrap --spec aio/provenance/components.json --lock aio/provenance/components.lock.json
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            echo '## AIO provenance: BOOTSTRAP / NON-BUILDABLE' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  ready-lock:
+    needs: tests-and-spec
+    if: needs.tests-and-spec.outputs.lock_ready == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Require offline-verifiable ready lock
+        run: scripts/aio-provenance-verify --spec aio/provenance/components.json --lock aio/provenance/components.lock.json
