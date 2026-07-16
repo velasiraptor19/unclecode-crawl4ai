@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import warnings
 from importlib.metadata import version
 from pathlib import Path
 from typing import Dict, List
@@ -63,10 +64,21 @@ def _camoufox_launch_options() -> dict:
 
 async def _open_camoufox(url: str, timeout_seconds: int):
     validate_url_scheme(url)
+    from camoufox._warnings import LeakWarning
     from camoufox.async_api import AsyncCamoufox
 
-    browser_manager = AsyncCamoufox(**_camoufox_launch_options())
-    browser = await browser_manager.__aenter__()
+    # The mandatory proxy is our own 127.0.0.1 SSRF pinning broker, not a
+    # remote egress proxy. Camoufox cannot distinguish those cases and emits a
+    # GeoIP leak warning that does not apply here; suppress only that warning
+    # while its launch configuration is created.
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"When using a proxy,.*geoip=True",
+            category=LeakWarning,
+        )
+        browser_manager = AsyncCamoufox(**_camoufox_launch_options())
+        browser = await browser_manager.__aenter__()
     try:
         page = await browser.new_page()
         await page.goto(

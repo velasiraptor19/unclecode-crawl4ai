@@ -33,12 +33,12 @@ async def _fake_upstream():
 
 @pytest.mark.asyncio
 class TestPinningProxy:
-    async def test_loopback_url_is_identified_as_localhost(self):
+    async def test_loopback_url_uses_the_bound_ipv4_address(self):
         proxy = PinningProxy()
         await proxy.start()
         try:
             assert proxy.bound_host == "127.0.0.1"
-            assert proxy.url == f"http://localhost:{proxy.bound_port}"
+            assert proxy.url == f"http://127.0.0.1:{proxy.bound_port}"
         finally:
             await proxy.stop()
 

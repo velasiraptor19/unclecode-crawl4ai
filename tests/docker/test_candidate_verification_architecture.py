@@ -2,6 +2,7 @@
 
 import ast
 import json
+import runpy
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -19,6 +20,8 @@ MCP_BRIDGE = (ROOT / "deploy/docker/mcp_bridge.py").read_text(encoding="utf-8")
 DOCKERFILE = (ROOT / "Dockerfile").read_text(encoding="utf-8")
 JOB = (ROOT / "deploy/docker/job.py").read_text(encoding="utf-8")
 SERVER = (ROOT / "deploy/docker/server.py").read_text(encoding="utf-8")
+ENTRYPOINT = (ROOT / "deploy/docker/entrypoint.sh").read_text(encoding="utf-8")
+COMPOSE = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 
 
 def test_workflows_are_valid_yaml():
@@ -86,6 +89,47 @@ def test_server_import_is_free_of_framework_deprecation_warnings():
     assert 'pattern="^(code|doc|all)$"' in SERVER
     assert "schema_: Optional[str] = Field(default=None, alias=\"schema\")" in JOB
     assert "payload.schema_" in JOB
+    assert 'if [[ -z "${SECRET_KEY:-}" ]]' in ENTRYPOINT
+    assert "export SECRET_KEY" in ENTRYPOINT
+    assert "No SECRET_KEY set" in SMOKE
+
+
+def test_non_root_xvfb_has_a_root_owned_socket_directory():
+    assert "install -d -o root -g root -m 1777 /tmp/.X11-unix" in DOCKERFILE
+    assert "/tmp/.X11-unix:uid=0,gid=0,mode=1777" in COMPOSE
+
+
+def test_build_archiver_uses_the_collected_report_and_real_warning_lines(tmp_path):
+    write_summary = runpy.run_path(ROOT / "tools/archive_gh_build.py")["write_summary"]
+    run = {
+        "databaseId": 1,
+        "conclusion": "failure",
+        "status": "completed",
+        "displayTitle": "test",
+        "headBranch": "test",
+        "headSha": "0" * 40,
+        "createdAt": "2026-01-01T00:00:00Z",
+        "updatedAt": "2026-01-01T00:01:00Z",
+        "url": "https://example.invalid/run/1",
+        "jobs": [{
+            "startedAt": "2026-01-01T00:00:00Z",
+            "completedAt": "2026-01-01T00:01:00Z",
+            "steps": [{"name": "Run smoke tests", "conclusion": "success"}],
+        }],
+    }
+    lines = [
+        "python -m nltk.downloader punkt",
+        "- Checks: 12",
+        "- Failures: 1",
+        "| `image_pull` | PASS | 0 |",
+        "| `aio_rest_contract` | FAIL | 1 |",
+        *[f"| `check_{index}` | PASS | 0 |" for index in range(10)],
+    ]
+    destination = tmp_path / "summary.md"
+    write_summary(run, lines, destination)
+    summary = destination.read_text(encoding="utf-8")
+    assert "11 passed, 1 failed" in summary
+    assert "Model preload `runpy` warnings" not in summary
 
 
 def test_main_workflow_collects_evidence_then_gates_promotion():

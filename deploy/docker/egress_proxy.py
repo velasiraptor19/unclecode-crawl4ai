@@ -45,11 +45,7 @@ class PinningProxy:
     def url(self) -> str | None:
         if self.bound_port is None:
             return None
-        # Camoufox correctly treats a proxy named localhost as local, while its
-        # leak detector mistakes the equivalent 127.0.0.1 spelling for a remote
-        # proxy that would require GeoIP fingerprint alignment.
-        public_host = "localhost" if self.bound_host == "127.0.0.1" else self.bound_host
-        return f"http://{public_host}:{self.bound_port}"
+        return f"http://{self.bound_host}:{self.bound_port}"
 
     async def start(self) -> str:
         self._server = await asyncio.start_server(self._handle, self._host, self._port)

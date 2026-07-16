@@ -74,7 +74,9 @@ def test_agent_tool_surface_contains_search_and_camoufox_fallbacks():
     assert 'webgl_config=("Intel", "Intel(R) HD Graphics, or similar")' in DOCKERFILE
     assert "def validate_url_scheme" in UTILS
     assert "validate_url_destination(url)" in UTILS
-    assert 'public_host = "localhost" if self.bound_host == "127.0.0.1"' in EGRESS_PROXY
+    assert 'return f"http://{self.bound_host}:{self.bound_port}"' in EGRESS_PROXY
+    assert "warnings.catch_warnings()" in WEB_TOOLS
+    assert 'message=r"When using a proxy,.*geoip=True"' in WEB_TOOLS
 
 
 def test_final_image_imports_server_as_runtime_user_during_build():

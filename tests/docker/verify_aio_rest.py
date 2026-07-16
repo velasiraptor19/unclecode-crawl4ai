@@ -32,9 +32,14 @@ def request(
     except urllib.error.HTTPError as exc:
         response = exc
     with response:
-        assert response.status == expected_status, (path, response.status)
-        assert response.headers.get_content_type() == "application/json"
-        payload = json.load(response)
+        content_type = response.headers.get_content_type()
+        raw_body = response.read()
+        try:
+            payload = json.loads(raw_body)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            payload = raw_body.decode("utf-8", errors="replace")
+        assert response.status == expected_status, (path, response.status, payload)
+        assert content_type == "application/json", (path, content_type, payload)
     assert isinstance(payload, dict), f"{path} returned {type(payload).__name__}"
     return payload
 

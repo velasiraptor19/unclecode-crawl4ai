@@ -379,6 +379,10 @@ RUN chown -R root:root ${APP_HOME} && chmod -R a-w ${APP_HOME}
 # give permissions to redis persistence dirs if used
 RUN mkdir -p /var/lib/redis /var/log/redis && chown -R appuser:appuser /var/lib/redis /var/log/redis
 
+# Xvfb runs as appuser, but X11 requires this socket directory to be created
+# and owned by root before the non-root X server starts.
+RUN install -d -o root -g root -m 1777 /tmp/.X11-unix
+
 # Sandboxed artifact store (server-owned screenshot/PDF outputs), 0700.
 RUN mkdir -p /var/lib/crawl4ai/outputs \
     && chown -R appuser:appuser /var/lib/crawl4ai \

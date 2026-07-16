@@ -64,6 +64,9 @@ class TestDockerfile:
         assert "/var/lib/crawl4ai/outputs" in dockerfile
         assert "chmod 700 /var/lib/crawl4ai/outputs" in dockerfile
 
+    def test_x11_socket_dir_is_root_owned(self, dockerfile):
+        assert "install -d -o root -g root -m 1777 /tmp/.X11-unix" in dockerfile
+
     def test_playwright_browsers_are_installed_as_appuser(self, dockerfile):
         appuser_install = re.search(
             r"^USER\s+appuser\s*$.*?^RUN\s+CRAWL4AI_MODE=api\s+crawl4ai-setup\s+\\\n"
@@ -116,6 +119,7 @@ class TestCompose:
         assert re.search(r"limits:\s*\n\s*memory:\s*4G\s*\n\s*pids:\s*512", compose)
 
     def test_read_only_runtime_tmpfs_are_appuser_owned(self, compose):
+        assert "/tmp/.X11-unix:uid=0,gid=0,mode=1777" in compose
         assert "/var/lib/redis:uid=999,gid=999,mode=0700" in compose
         assert "/var/lib/crawl4ai/outputs:uid=999,gid=999,mode=0700" in compose
         assert "/home/appuser/.crawl4ai:uid=999,gid=999,mode=0700" in compose

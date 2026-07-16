@@ -105,7 +105,7 @@ check_novnc() {
 check_runtime_log_contract() {
     local logs
     logs="$(docker logs "${container}" 2>&1)"
-    if grep -E 'LeakWarning: When using a proxy|FastAPIDeprecationWarning|shadows an attribute in parent "BaseModel"' <<< "${logs}"; then
+    if grep -E 'LeakWarning: When using a proxy|FastAPIDeprecationWarning|shadows an attribute in parent "BaseModel"|No SECRET_KEY set' <<< "${logs}"; then
         return 1
     fi
 }

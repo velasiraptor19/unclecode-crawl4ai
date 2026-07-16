@@ -54,7 +54,13 @@ def first_match(lines: list[str], pattern: str) -> str | None:
     return None
 
 
-def write_summary(run: dict, lines: list[str], destination: Path) -> None:
+def write_summary(
+    run: dict,
+    lines: list[str],
+    destination: Path,
+    evidence_lines: list[str] | None = None,
+) -> None:
+    evidence_lines = evidence_lines or []
     smoke_image = (
         first_match(lines, r"- Image: `([^`]+)`")
         or first_match(lines, r"(ghcr\.io/[^ ]+:candidate-[^ ]+@sha256:[a-f0-9]{64})")
@@ -65,8 +71,12 @@ def write_summary(run: dict, lines: list[str], destination: Path) -> None:
         (line for line in lines if "docker buildx build --build-arg" in line), ""
     )
     build_args = " ".join(re.findall(r"--build-arg ([^ ]+)", build_command)) or None
-    passed_checks = [line for line in lines if line.startswith("[PASS]")]
-    failed_checks = [line for line in lines if line.startswith("[FAIL]")]
+    report_results: dict[str, str] = {}
+    report_row = re.compile(r"^\| `([^`]+)` \| (PASS|FAIL) \| [^|]+\|$")
+    for line in lines:
+        match = report_row.fullmatch(line)
+        if match:
+            report_results[match.group(1)] = match.group(2).lower()
     smoke_job = next(
         (
             job
@@ -80,7 +90,9 @@ def write_summary(run: dict, lines: list[str], destination: Path) -> None:
         None,
     ) if smoke_job else None
 
-    def smoke_result(success_evidence: bool = False) -> str:
+    def smoke_result(check_name: str | None = None, success_evidence: bool = False) -> str:
+        if check_name in report_results:
+            return report_results[check_name]
         if smoke_step is None or smoke_step["conclusion"] == "skipped":
             return "not run (build failed before smoke)"
         if success_evidence or smoke_step["conclusion"] == "success":
@@ -102,7 +114,8 @@ def write_summary(run: dict, lines: list[str], destination: Path) -> None:
         )
     preload_warnings = [
         line for line in lines
-        if "nltk.downloader" in line or "crawl4ai.model_loader" in line
+        if "RuntimeWarning" in line
+        and ("nltk.downloader" in line or "crawl4ai.model_loader" in line)
     ]
     if preload_warnings:
         warning_groups.append(
@@ -114,17 +127,62 @@ def write_summary(run: dict, lines: list[str], destination: Path) -> None:
             "Hugging Face preload used anonymous access: it can be rate-limited, but the "
             "download completed. A token is optional for higher limits."
         )
+    if any("Memory overcommit must be enabled" in line for line in evidence_lines):
+        warning_groups.append(
+            "Redis reported host kernel `vm.overcommit_memory=0`; this is a host-level "
+            "deployment recommendation, not an image dependency failure."
+        )
+    if any("_XSERVTransmkdir: ERROR" in line for line in evidence_lines):
+        warning_groups.append(
+            "Xvfb could not create `/tmp/.X11-unix` as appuser; browser/noVNC tests "
+            "still ran, but the runtime socket setup should be normalized."
+        )
+    if any("No SECRET_KEY set" in line for line in evidence_lines):
+        warning_groups.append(
+            "Crawl4AI generated an ephemeral runtime `SECRET_KEY`; configure or generate "
+            "one in the entrypoint to keep tokens stable for the container lifetime."
+        )
+    if any("LeakWarning: When using a proxy" in line for line in evidence_lines):
+        warning_groups.append(
+            "Camoufox reported a GeoIP leak warning for the image's own loopback pinning proxy."
+        )
+    engine_failures = [
+        line for line in evidence_lines
+        if "SearxEngine" in line
+        or "can't register engine" in line
+        or "engine INIT failed" in line
+    ]
+    if engine_failures:
+        warning_groups.append(
+            f"SearXNG logged {len(engine_failures)} engine initialization/rate-limit lines; "
+            "the independent search contract determines whether usable engines remain."
+        )
 
     checks = [
-        ("Published image pull", "passed" if digest else "not evidenced in raw log"),
-        ("Container health check", smoke_result()),
-        ("pip check", smoke_result(any("No broken requirements found." in line for line in lines))),
-        ("Crawl runtime contract", smoke_result(any("runtime contract passed" in line for line in lines))),
-        ("Unauthenticated MCP HTTP returns 401", smoke_result()),
-        ("Authenticated Streamable HTTP MCP tool test", smoke_result()),
+        ("Published image pull", smoke_result("image_pull", bool(digest))),
+        ("Container health check", smoke_result("container_health")),
+        (
+            "pip check",
+            smoke_result(
+                "pip_check",
+                any("No broken requirements found." in line for line in lines),
+            ),
+        ),
+        (
+            "Crawl runtime contract",
+            smoke_result(
+                "runtime_contract",
+                any("runtime contract passed" in line for line in lines),
+            ),
+        ),
+        ("Direct AIO REST contract", smoke_result("aio_rest_contract")),
+        ("Unauthenticated MCP HTTP returns 401", smoke_result("mcp_auth_gate")),
+        ("Authenticated Streamable HTTP MCP tool test", smoke_result("mcp_http_contract")),
+        ("Runtime log contract", smoke_result("runtime_log_contract")),
         (
             "Collecting candidate verification",
-            f"{len(passed_checks)} passed, {len(failed_checks)} failed",
+            f"{sum(result == 'pass' for result in report_results.values())} passed, "
+            f"{sum(result == 'fail' for result in report_results.values())} failed",
         ),
     ]
 
@@ -233,7 +291,13 @@ def main() -> int:
             "--name", evidence_artifact["name"], "--dir", str(evidence_dir),
         )
     lines = [clean_line(line) for line in raw_log.splitlines()]
-    write_summary(run, lines, archive / "summary.md")
+    evidence_lines: list[str] = []
+    container_log = evidence_dir / "container.log"
+    if container_log.is_file():
+        evidence_lines = [clean_line(line) for line in container_log.read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines()]
+    write_summary(run, lines, archive / "summary.md", evidence_lines)
     write_index(args.output)
     print(f"Archived run {args.run_id} in {archive}")
     return 0

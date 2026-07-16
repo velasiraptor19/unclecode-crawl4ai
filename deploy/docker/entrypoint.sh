@@ -25,6 +25,13 @@ if [[ -z "${SEARXNG_SECRET:-}" ]]; then
 fi
 export SEARXNG_SECRET
 
+# --- Crawl4AI signing key: stable for this container lifetime. ---------------
+if [[ -z "${SECRET_KEY:-}" ]]; then
+    SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+    echo "entrypoint: no SECRET_KEY provided; generated an ephemeral container key." >&2
+fi
+export SECRET_KEY
+
 # --- API token: prefer a mounted secret, else an existing env var. -----------
 if [[ -z "${CRAWL4AI_API_TOKEN:-}" && -f /run/secrets/api_token ]]; then
     export CRAWL4AI_API_TOKEN="$(cat /run/secrets/api_token)"
