@@ -1,6 +1,6 @@
 # Docker Image Matrix
 
-This document defines the Docker image contract for the v0.9.1 image work.
+This document defines the Docker image contract for the v0.9.2 image work.
 The first implementation target is a fully tested CPU image. GPU images are
 separate artifacts and must not be inferred from a CPU image at runtime.
 
@@ -24,7 +24,7 @@ Every published image must:
 | `all-gpu-preload` | `INSTALL_TYPE=all`, `PRELOAD_MODELS=true`, `ENABLE_GPU=true`, CUDA-compatible PyTorch wheels | NVIDIA runtime hosts only |
 
 For each canonical suffix, publish a release tag such as
-`v0.9.1-all-cpu-preload` and an immutable source tag such as
+`v0.9.2-all-cpu-preload` and an immutable source tag such as
 `sha-<commit>-all-cpu-preload`. The short `all` tag is an explicit alias for
 the selected default variant, never an unspecified mixture of CPU and GPU
 dependencies.

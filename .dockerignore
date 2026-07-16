@@ -35,4 +35,3 @@ deploy/docker/tests
 *.jpeg
 *.parquet
 *.csv
-

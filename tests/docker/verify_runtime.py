@@ -45,7 +45,7 @@ async def verify_crawl() -> None:
 
 
 def main() -> None:
-    assert version("Crawl4AI") == "0.9.1"
+    assert version("Crawl4AI") == "0.9.2"
     assert (HOME / ".cache" / "huggingface").is_dir(), "preloaded Hugging Face model missing"
     assert (HOME / "nltk_data").is_dir(), "preloaded NLTK data missing"
     verify_browser_assets()
