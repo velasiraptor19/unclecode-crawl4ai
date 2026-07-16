@@ -198,6 +198,13 @@ def test_cleanup_removes_uv_and_caches_but_retains_os_toolkit():
         assert package in DOCKERFILE
 
 
+def test_appuser_identity_is_reserved_before_apt_creates_system_users():
+    identity = "RUN groupadd --system --gid 999 appuser"
+    first_apt = "RUN apt-get update"
+    assert DOCKERFILE.count(identity) == 1
+    assert DOCKERFILE.index(identity) < DOCKERFILE.index(first_apt)
+
+
 def test_build_context_is_mounted_and_uv_cache_dies_in_install_layer():
     assert "COPY --chown=appuser:appuser . /tmp/project/" not in DOCKERFILE
     install = DOCKERFILE.split("RUN --mount=type=bind,source=.,target=/tmp/project,readonly", 1)[1]

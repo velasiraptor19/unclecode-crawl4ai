@@ -58,12 +58,24 @@ def write_summary(run: dict, lines: list[str], destination: Path) -> None:
     digest = first_match(lines, r"Digest: (sha256:[a-f0-9]+)")
     build_args = first_match(lines, r"docker buildx build .*?(--build-arg .*?) --cache-from")
     smoke_job = next(
-        (job for job in run["jobs"] if job["name"] == "build"), None
+        (
+            job
+            for job in run["jobs"]
+            if any("Run smoke" in step["name"] for step in job["steps"])
+        ),
+        None,
     )
     smoke_step = next(
-        (step for step in smoke_job["steps"] if step["name"] == "Smoke test published CPU image"),
+        (step for step in smoke_job["steps"] if "Run smoke" in step["name"]),
         None,
     ) if smoke_job else None
+
+    def smoke_result(success_evidence: bool = False) -> str:
+        if smoke_step is None or smoke_step["conclusion"] == "skipped":
+            return "not run (build failed before smoke)"
+        if success_evidence or smoke_step["conclusion"] == "success":
+            return "passed"
+        return "failed"
 
     warning_groups: list[str] = []
     node_warnings = [line for line in lines if "Node.js 20 is deprecated" in line]
@@ -95,11 +107,11 @@ def write_summary(run: dict, lines: list[str], destination: Path) -> None:
 
     checks = [
         ("Published image pull", "passed" if digest else "not evidenced in raw log"),
-        ("Container health check", "passed" if smoke_step and smoke_step["conclusion"] == "success" else "failed"),
-        ("pip check", "passed" if any("No broken requirements found." in line for line in lines) else "failed"),
-        ("Crawl runtime contract", "passed" if any("runtime contract passed" in line for line in lines) else "failed"),
-        ("Unauthenticated MCP HTTP returns 401", "passed" if smoke_step and smoke_step["conclusion"] == "success" else "failed"),
-        ("Authenticated Streamable HTTP MCP tool test", "passed" if smoke_step and smoke_step["conclusion"] == "success" else "failed"),
+        ("Container health check", smoke_result()),
+        ("pip check", smoke_result(any("No broken requirements found." in line for line in lines))),
+        ("Crawl runtime contract", smoke_result(any("runtime contract passed" in line for line in lines))),
+        ("Unauthenticated MCP HTTP returns 401", smoke_result()),
+        ("Authenticated Streamable HTTP MCP tool test", smoke_result()),
     ]
 
     job = run["jobs"][0]

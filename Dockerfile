@@ -67,6 +67,11 @@ LABEL maintainer="unclecode"
 LABEL description="🔥🕷️ Crawl4AI: Open-source LLM Friendly Web Crawler & scraper"
 LABEL version="1.0"
 
+# Reserve the runtime identity before Debian packages create their own system
+# users. Otherwise packages such as Redis may claim UID/GID 999 first.
+RUN groupadd --system --gid 999 appuser \
+    && useradd --no-log-init --system --uid 999 --gid 999 --home-dir /home/appuser appuser
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl gnupg \
     && curl -fsSL https://packages.redis.io/gpg | gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg \
@@ -133,10 +138,6 @@ fi \
     else \
         echo "Skipping platform-specific optimizations (unsupported platform)" ; \
     fi
-
-# Keep the runtime identity aligned with Compose tmpfs ownership.
-RUN groupadd --system --gid 999 appuser \
-    && useradd --no-log-init --system --uid 999 --gid 999 --home-dir /home/appuser appuser
 
 # Create the appuser home and cache directories up front so
 # Python packages, Playwright browsers, and preloaded models live in the same
