@@ -4,11 +4,17 @@ This document defines the Docker image contract for the v0.9.2 image work.
 The first implementation target is a fully tested CPU image. GPU images are
 separate artifacts and must not be inferred from a CPU image at runtime.
 
-For the v0.9.2 AIO provenance phase, the only publishable contract is
+For the v0.9.2 AIO web-stack phase, the only publishable contract is
 `INSTALL_TYPE=all`, `ENABLE_GPU=false`, and `PRELOAD_MODELS=true`, from
-`refs/heads/aio-published-v0.9.2-provenance`. Other variants and refs fail
+`refs/heads/aio-v0.9.2-web-stack-latest`. Other variants and refs fail
 before the build. GPU rows below remain a future contract, not published
 artifacts from this workflow.
+
+The web-stack image adds the published-latest SearXNG source and Granian to the
+same appuser-owned Python environment. It exposes Crawl4AI on `11235` and
+SearXNG on `8080`. The upstream SearXNG Void Linux virtualenv is excluded;
+only its digest-pinned source and precompressed static files cross the stage
+boundary.
 
 ## Image Contract
 
@@ -29,13 +35,14 @@ Every published image must:
 | `all-cpu-preload` | `INSTALL_TYPE=all`, `PRELOAD_MODELS=true`, `ENABLE_GPU=false`, CPU-only PyTorch wheels | Full CPU feature set with baked models and all Playwright browsers |
 | `all-gpu-preload` | `INSTALL_TYPE=all`, `PRELOAD_MODELS=true`, `ENABLE_GPU=true`, CUDA-compatible PyTorch wheels | NVIDIA runtime hosts only |
 
-For each canonical suffix, publish a release tag such as
-`v0.9.2-all-cpu-preload` and a protected source tag such as
-`sha-<commit>-all-cpu-preload`. The workflow enforces immutability for both:
+This phase publishes the isolated aliases `aio-web-latest` and
+`aio-web-all-cpu-preload`, a protected release tag
+`v0.9.2-aio-web-all-cpu-preload`, and a protected source tag
+`sha-<commit>-aio-web-all-cpu-preload`. It does not replace the existing
+Crawl-only `latest` or `all` aliases. The workflow enforces immutability for
+the protected tags:
 an existing protected tag may be reused only when it already names the tested
-digest, and a digest mismatch fails the release. The short `all` tag is an explicit alias for
-the selected default variant, never an unspecified mixture of CPU and GPU
-dependencies.
+digest, and a digest mismatch fails the release.
 
 The GHCR workflow first publishes a non-release `candidate-<run>-<attempt>`
 tag. Smoke, package, Crawl4AI runtime, MCP, and Chromium/Firefox/WebKit checks
@@ -45,8 +52,8 @@ tags to that exact digest; the image is not rebuilt during promotion. The image
 labels and workflow summary record the locked upstream index digest and release
 commit from `aio/provenance/components.lock.json`. Workflow concurrency cancels
 superseded runs, and promotion reads the authoritative remote branch tip again
-immediately before moving any tag. Therefore `latest`, `all`, and
-`all-cpu-preload` can move only for the current publishing-branch tip.
+immediately before moving any tag. Therefore `aio-web-latest` and
+`aio-web-all-cpu-preload` can move only for the current publishing-branch tip.
 
 ## v0.9.2 dependency lock identity
 
@@ -102,6 +109,10 @@ layers, satisfies these checks:
 7. For CPU images, assert CUDA/Triton package directories are absent and
    `torch.cuda.is_available()` is false.
 8. Verify declared model and NLTK assets are present when preload is enabled.
+9. Verify SearXNG `/healthz`, `/config`, and a real JSON search using its
+   appuser Granian process.
+10. Verify `/usr/local/searxng/.venv` is absent and all installed Python
+    distributions match the shipped AIO runtime lock.
 
 ## Cleanup Rules
 

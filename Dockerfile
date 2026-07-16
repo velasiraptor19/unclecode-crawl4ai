@@ -1,3 +1,14 @@
+# syntax=docker/dockerfile:1
+
+FROM docker.io/searxng/searxng@sha256:1a196e52ef0aec52a462667e5c54030840f94865c13e1260004caa10cca6be49 AS searxng-source
+
+# Materialize a source-only filesystem snapshot. The final Debian image copies
+# from this stage, so the upstream Void virtualenv and its layers are not inherited.
+FROM searxng-source AS searxng-sanitized
+USER root
+RUN rm -rf /usr/local/searxng/.venv \
+    && test ! -e /usr/local/searxng/.venv
+
 FROM python:3.12-slim-bookworm AS build
 
 # C4ai version
@@ -5,12 +16,20 @@ ARG C4AI_VER=0.9.2
 ARG SOURCE_COMMIT=unknown
 ARG AIO_PROVENANCE_INDEX_DIGEST=unlocked
 ARG AIO_PROVENANCE_RELEASE_COMMIT=unlocked
+ARG AIO_SEARXNG_INDEX_DIGEST=unlocked
+ARG AIO_SEARXNG_PLATFORM_DIGEST=unlocked
+ARG AIO_SEARXNG_VERSION=unlocked
+ARG AIO_SEARXNG_SOURCE_COMMIT=unlocked
 ENV C4AI_VERSION=$C4AI_VER
 LABEL c4ai.version=$C4AI_VER \
     org.opencontainers.image.version=$C4AI_VER \
     org.opencontainers.image.revision=$SOURCE_COMMIT \
     io.crawl4ai.aio.provenance.index-digest=$AIO_PROVENANCE_INDEX_DIGEST \
-    io.crawl4ai.aio.provenance.release-commit=$AIO_PROVENANCE_RELEASE_COMMIT
+    io.crawl4ai.aio.provenance.release-commit=$AIO_PROVENANCE_RELEASE_COMMIT \
+    io.crawl4ai.aio.searxng.index-digest=$AIO_SEARXNG_INDEX_DIGEST \
+    io.crawl4ai.aio.searxng.platform-digest=$AIO_SEARXNG_PLATFORM_DIGEST \
+    io.crawl4ai.aio.searxng.version=$AIO_SEARXNG_VERSION \
+    io.crawl4ai.aio.searxng.source-commit=$AIO_SEARXNG_SOURCE_COMMIT
 
 # Set build arguments
 ARG APP_HOME=/app
@@ -27,7 +46,8 @@ ENV PYTHONFAULTHANDLER=1 \
     XDG_CACHE_HOME=/home/appuser/.cache \
     DEBIAN_FRONTEND=noninteractive \
     REDIS_HOST=localhost \
-    REDIS_PORT=6379
+    REDIS_PORT=6379 \
+    SEARXNG_SETTINGS_PATH=/etc/searxng/settings.yml
 
 ARG PYTHON_VERSION=3.12
 ARG INSTALL_TYPE=all
@@ -128,14 +148,14 @@ ENV PATH=/home/appuser/.venv/bin:$PATH
 
 WORKDIR ${APP_HOME}
 
-COPY --chown=appuser:appuser . /tmp/project/
-
 RUN python -m pip install --no-cache-dir "uv==${UV_VERSION}"
 
 USER appuser
 
-RUN UV_PROJECT_ENVIRONMENT=/home/appuser/.venv UV_CACHE_DIR=/tmp/uv-cache \
+RUN --mount=type=bind,source=.,target=/tmp/project,readonly \
+    UV_PROJECT_ENVIRONMENT=/home/appuser/.venv UV_CACHE_DIR=/tmp/uv-cache \
         uv sync --project /tmp/project/aio/runtime --frozen --no-dev --no-editable \
+    && rm -rf /tmp/uv-cache \
     && python -m nltk.downloader punkt stopwords \
     && if [ "$PRELOAD_MODELS" = "true" ]; then \
         python -m crawl4ai.model_loader ; \
@@ -216,6 +236,11 @@ COPY --chown=root:root deploy/docker/* ${APP_HOME}/
 RUN mkdir -p /opt/crawl4ai
 COPY --chown=root:root aio/runtime/uv.lock /opt/crawl4ai/aio-runtime.uv.lock
 
+# Copy only the sanitized merged filesystem into Debian. No stage based on the
+# upstream Void image is an ancestor of this final stage.
+COPY --from=searxng-sanitized --chown=root:root /usr/local/searxng/ /usr/local/searxng/
+COPY --chown=root:root aio/searxng/settings.yml /etc/searxng/settings.yml
+
 # copy the playground + any future static assets
 COPY --chown=root:root deploy/docker/static ${APP_HOME}/static
 
@@ -231,6 +256,11 @@ RUN mkdir -p /var/lib/crawl4ai/outputs \
     && chown -R appuser:appuser /var/lib/crawl4ai \
     && chmod 700 /var/lib/crawl4ai/outputs
 
+RUN mkdir -p /var/cache/searxng \
+    && chown appuser:appuser /var/cache/searxng \
+    && chmod 700 /var/cache/searxng \
+    && test ! -e /usr/local/searxng/.venv
+
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD bash -c '\
     MEM=$(free -m | awk "/^Mem:/{print \$2}"); \
@@ -239,15 +269,21 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
         exit 1; \
     fi && \
     redis-cli ping > /dev/null && \
-    curl -f http://localhost:11235/health || exit 1'
+    curl -f http://localhost:11235/health && \
+    curl -f http://localhost:8080/healthz || exit 1'
 
 # Redis is in-container only (loopback + requirepass); never expose its port.
 # (was: EXPOSE 6379)
+EXPOSE 11235 8080
 # Switch to the non-root user before starting the application
 USER appuser
 
-# Set environment variables to ptoduction
+# Set the runtime environment.
 ENV PYTHON_ENV=production 
+
+RUN cd /usr/local/searxng \
+    && python -c "import granian, searx; print('SearXNG shared appuser runtime is ready')" \
+    && test ! -e /usr/local/searxng/.venv
 
 # Start via entrypoint.sh, which resolves the socket-level auth/egress posture
 # (loopback unless a credential is present) and the redis password, then execs

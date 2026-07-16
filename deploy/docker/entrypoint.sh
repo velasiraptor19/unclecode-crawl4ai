@@ -17,6 +17,14 @@ if [[ -z "${REDIS_PASSWORD:-}" ]]; then
 fi
 export REDIS_PASSWORD
 
+# SearXNG uses this secret for signed URLs and session state. Keep an explicit
+# operator value when supplied; otherwise generate one for this container run.
+if [[ -z "${SEARXNG_SECRET:-}" ]]; then
+    SEARXNG_SECRET="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+    echo "entrypoint: no SEARXNG_SECRET provided; generated an ephemeral one." >&2
+fi
+export SEARXNG_SECRET
+
 # --- API token: prefer a mounted secret, else an existing env var. -----------
 if [[ -z "${CRAWL4AI_API_TOKEN:-}" && -f /run/secrets/api_token ]]; then
     export CRAWL4AI_API_TOKEN="$(cat /run/secrets/api_token)"

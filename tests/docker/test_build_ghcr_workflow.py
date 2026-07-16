@@ -31,7 +31,7 @@ def test_workflow_is_valid_yaml():
 
 
 def test_current_release_ref_and_variant_fail_closed():
-    assert "refs/heads/aio-published-v0.9.2-provenance" in WORKFLOW
+    assert "refs/heads/aio-v0.9.2-web-stack-latest" in WORKFLOW
     assert '"${INSTALL_TYPE}" != "all"' in WORKFLOW
     assert '"${ENABLE_GPU}" != "false"' in WORKFLOW
     assert "PRELOAD_MODELS=true" in WORKFLOW
@@ -56,7 +56,7 @@ def test_candidate_is_tested_before_exact_digest_promotion():
     tests = _position("Run smoke, runtime, MCP, and browser tests against candidate digest")
     promotion = _position("Promote exact tested digest to final tags")
     assert candidate < tests < promotion
-    assert "candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-all-cpu-preload" in WORKFLOW
+    assert "candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-aio-web-all-cpu-preload" in WORKFLOW
     assert '"${{ steps.tags.outputs.candidate }}@${{ steps.build.outputs.digest }}"' in WORKFLOW
     assert 'source_ref="${CANDIDATE_IMAGE}@${CANDIDATE_DIGEST}"' in WORKFLOW
     assert (
@@ -97,12 +97,11 @@ def test_existing_release_and_source_tags_fail_closed_on_digest_collision():
         'echo "EOF"', maxsplit=1
     )[0]
     protected_lines = {line.strip() for line in protected.splitlines()}
-    assert ":v${C4AI_VERSION}-all-cpu-preload" in protected
-    assert ":sha-${GITHUB_SHA}-all-cpu-preload" in protected
+    assert ":v${C4AI_VERSION}-aio-web-all-cpu-preload" in protected
+    assert ":sha-${GITHUB_SHA}-aio-web-all-cpu-preload" in protected
     for mutable in (
-        'echo "${image}:latest"',
-        'echo "${image}:all"',
-        'echo "${image}:all-cpu-preload"',
+        'echo "${image}:aio-web-latest"',
+        'echo "${image}:aio-web-all-cpu-preload"',
     ):
         assert mutable not in protected_lines
 
@@ -143,6 +142,9 @@ def test_locked_evidence_is_added_to_labels_and_summary():
     assert "AIO_PROVENANCE_RELEASE_COMMIT=${{ steps.provenance.outputs.release_commit }}" in WORKFLOW
     assert "Locked upstream index" in WORKFLOW
     assert "Locked release commit" in WORKFLOW
+    assert "AIO_SEARXNG_INDEX_DIGEST=${{ steps.provenance.outputs.searxng_index_digest }}" in WORKFLOW
+    assert "AIO_SEARXNG_SOURCE_COMMIT=${{ steps.provenance.outputs.searxng_source_commit }}" in WORKFLOW
+    assert "Locked SearXNG source commit" in WORKFLOW
 
 
 def test_aio_runtime_is_installed_from_cpu_only_frozen_lock():
@@ -188,3 +190,11 @@ def test_cleanup_removes_uv_and_caches_but_retains_os_toolkit():
         "gnupg",
     ):
         assert package in DOCKERFILE
+
+
+def test_build_context_is_mounted_and_uv_cache_dies_in_install_layer():
+    assert "COPY --chown=appuser:appuser . /tmp/project/" not in DOCKERFILE
+    install = DOCKERFILE.split("RUN --mount=type=bind,source=.,target=/tmp/project,readonly", 1)[1]
+    install = install.split("\n\nUSER root", 1)[0]
+    assert "uv sync --project /tmp/project/aio/runtime --frozen" in install
+    assert "rm -rf /tmp/uv-cache" in install
