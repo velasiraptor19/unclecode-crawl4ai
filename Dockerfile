@@ -336,7 +336,9 @@ ENV PYTHON_ENV=production
 
 RUN cd /usr/local/searxng \
     && python -c "import granian, searx; print('SearXNG shared appuser runtime is ready')" \
-    && test ! -e /usr/local/searxng/.venv
+    && test ! -e /usr/local/searxng/.venv \
+    && cd ${APP_HOME} \
+    && python -c "import server; assert server.app; print('Crawl4AI server import is ready')"
 
 # Start via entrypoint.sh, which resolves the socket-level auth/egress posture
 # (loopback unless a credential is present) and the redis password, then execs

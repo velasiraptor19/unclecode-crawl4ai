@@ -349,6 +349,18 @@ _BLOCKED_HOSTNAMES = {
 
 
 ALLOW_INTERNAL_URLS = os.environ.get("CRAWL4AI_ALLOW_INTERNAL_URLS", "false").lower() == "true"
+ALLOWED_URL_SCHEMES = ("http://", "https://")
+ALLOWED_URL_SCHEMES_WITH_RAW = ("http://", "https://", "raw:", "raw://")
+
+
+def validate_url_scheme(url: str, allow_raw: bool = False) -> None:
+    """Validate the fetch scheme before applying the shared SSRF policy."""
+    allowed = ALLOWED_URL_SCHEMES_WITH_RAW if allow_raw else ALLOWED_URL_SCHEMES
+    if not str(url).startswith(allowed):
+        from fastapi import HTTPException
+
+        raise HTTPException(400, f"URL must start with {', '.join(allowed)}")
+    validate_url_destination(url)
 
 
 def validate_url_destination(url: str) -> None:

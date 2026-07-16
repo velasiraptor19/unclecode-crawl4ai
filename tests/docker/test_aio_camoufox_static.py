@@ -10,6 +10,7 @@ PYPROJECT = (ROOT / "aio/runtime/pyproject.toml").read_text(encoding="utf-8")
 UV_LOCK = (ROOT / "aio/runtime/uv.lock").read_text(encoding="utf-8")
 LOCK = json.loads((ROOT / "aio/camoufox/components.lock.json").read_text(encoding="utf-8"))
 WEB_TOOLS = (ROOT / "deploy/docker/aio_web_tools.py").read_text(encoding="utf-8")
+UTILS = (ROOT / "deploy/docker/utils.py").read_text(encoding="utf-8")
 SUPERVISOR = (ROOT / "deploy/docker/supervisord.conf").read_text(encoding="utf-8")
 COMPOSE = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 WORKFLOW = (ROOT / ".github/workflows/build-ghcr.yml").read_text(encoding="utf-8")
@@ -54,6 +55,13 @@ def test_agent_tool_surface_contains_search_and_camoufox_fallbacks():
     assert "get_egress_proxy()" in WEB_TOOLS
     assert '"proxy": {"server": proxy_url}' in WEB_TOOLS
     assert "CAMOUFOX_SEM" in WEB_TOOLS
+    assert "def validate_url_scheme" in UTILS
+    assert "validate_url_destination(url)" in UTILS
+
+
+def test_final_image_imports_server_as_runtime_user_during_build():
+    final_appuser_block = DOCKERFILE.rsplit("USER appuser", 1)[1]
+    assert 'python -c "import server; assert server.app;' in final_appuser_block
 
 
 def test_workflow_gates_and_labels_camoufox_provenance():

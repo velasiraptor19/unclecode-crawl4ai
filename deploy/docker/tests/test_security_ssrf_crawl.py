@@ -191,9 +191,9 @@ class TestIPv6MappedBypass(unittest.TestCase):
 class TestSSRFSourceCoverage(unittest.TestCase):
     """Verify all URL entry points have SSRF validation."""
 
-    def test_server_validate_url_scheme_calls_destination(self):
+    def test_shared_validate_url_scheme_calls_destination(self):
         """validate_url_scheme must also call validate_url_destination."""
-        with open(os.path.join(DEPLOY_DIR, "server.py")) as f:
+        with open(os.path.join(DEPLOY_DIR, "utils.py")) as f:
             source = f.read()
         # Find validate_url_scheme function body
         idx = source.index("def validate_url_scheme")
@@ -201,6 +201,11 @@ class TestSSRFSourceCoverage(unittest.TestCase):
         func_body = source[idx:func_end]
         self.assertIn("validate_url_destination", func_body,
             "validate_url_scheme must call validate_url_destination")
+
+        with open(os.path.join(DEPLOY_DIR, "server.py")) as f:
+            server_source = f.read()
+        self.assertIn("validate_url_scheme,", server_source,
+            "server.py must consume the shared URL validator")
 
     def test_api_py_has_destination_validation(self):
         """api.py must call validate_url_destination for all URL entry points."""
