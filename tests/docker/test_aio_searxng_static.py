@@ -60,5 +60,7 @@ def test_smoke_covers_health_config_real_search_and_duplicate_venv():
     verify = (ROOT / "tests/docker/verify_searxng.py").read_text(encoding="utf-8")
     for contract in ("/healthz", "/config", '"format": "json"', '"brave"', '"duckduckgo"'):
         assert contract in verify
-    assert 'Path("/usr/local/searxng/.venv")' in verify
+    assert 'SEARXNG_ROOT / ".venv"' in verify
+    assert 'sys.path.insert(0, str(SEARXNG_ROOT))' in verify
+    assert 'SEARXNG_ROOT / "searx" / "__init__.py"' in verify
     assert "unresponsive_engines" in verify

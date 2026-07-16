@@ -1,12 +1,14 @@
 """Runtime contract for the SearXNG service embedded in the AIO image."""
 
 import json
+import sys
 import urllib.parse
 import urllib.request
 from pathlib import Path
 
 
 BASE_URL = "http://127.0.0.1:8080"
+SEARXNG_ROOT = Path("/usr/local/searxng")
 
 
 def get(path: str, timeout: int = 20) -> tuple[int, bytes, str]:
@@ -15,9 +17,13 @@ def get(path: str, timeout: int = 20) -> tuple[int, bytes, str]:
 
 
 def main() -> None:
+    # Supervisor starts Granian with directory=/usr/local/searxng. This verifier
+    # is bind-mounted under /tmp, so reproduce that source-root import context.
+    assert (SEARXNG_ROOT / "searx" / "__init__.py").is_file(), "SearXNG source missing"
+    sys.path.insert(0, str(SEARXNG_ROOT))
     import searx  # noqa: F401
 
-    assert not Path("/usr/local/searxng/.venv").exists(), "upstream SearXNG venv was copied"
+    assert not (SEARXNG_ROOT / ".venv").exists(), "upstream SearXNG venv was copied"
 
     status, body, _ = get("/healthz")
     assert status == 200 and body.strip() == b"OK"
