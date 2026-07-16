@@ -43,7 +43,7 @@ permissions:
 
 concurrency:
   group: build-ghcr-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   REGISTRY: ghcr.io
@@ -204,8 +204,7 @@ jobs:
                 echo "Refusing to replace protected tag ${tag}: ${existing_digest} != ${CANDIDATE_DIGEST}." >&2
                 exit 1
               fi
-            elif ! grep -Eqi 'manifest unknown|no such manifest|404 Not Found' <<< "${inspection}" \
-                && [[ "${inspection}" != "ERROR: ${tag}: not found" ]]; then
+            elif [[ "${inspection}" != "ERROR: ${tag}: not found" ]]; then
               echo "Refusing promotion after unexpected registry error for ${tag}: ${inspection}" >&2
               exit 1
             fi

@@ -24,8 +24,9 @@ x-base-config: &base-config
   security_opt:
     - no-new-privileges:true
   pids_limit: 512
-  # Read-only root filesystem; only these paths are writable (tmpfs).
-  read_only: true
+  # Writable by default so trusted-LAN operators can add models or packages.
+  # Hardened deployments may set read_only=true after provisioning.
+  read_only: false
   tmpfs:
     - /tmp
     - /var/lib/redis:uid=999,gid=999,mode=0700

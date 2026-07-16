@@ -9,7 +9,7 @@ USER root
 RUN rm -rf /usr/local/searxng/.venv \
     && test ! -e /usr/local/searxng/.venv
 
-FROM python:3.12-slim-bookworm AS build
+FROM python:3.12-slim-bookworm@sha256:72d3d75f2639ab82b34b29390ad3d6e0827c775befee94edda8e9976818f488d AS build
 
 # C4ai version
 ARG C4AI_VER=0.9.2

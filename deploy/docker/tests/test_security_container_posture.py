@@ -104,8 +104,8 @@ class TestCompose:
     def test_no_new_privileges(self, compose):
         assert "no-new-privileges:true" in compose
 
-    def test_read_only_rootfs(self, compose):
-        assert re.search(r"read_only:\s*true", compose)
+    def test_default_rootfs_is_writable_for_runtime_extension(self, compose):
+        assert re.search(r"read_only:\s*false", compose)
 
     def test_no_host_dev_shm_bind(self, compose):
         assert "/dev/shm:/dev/shm" not in compose

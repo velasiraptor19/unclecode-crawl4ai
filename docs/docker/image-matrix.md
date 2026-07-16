@@ -16,6 +16,13 @@ SearXNG on `8080`. The upstream SearXNG Void Linux virtualenv is excluded;
 only its digest-pinned source and precompressed static files cross the stage
 boundary.
 
+SearXNG intentionally binds all container interfaces and has no built-in API
+authentication in this phase. Port `8080` is for an isolated, trusted Docker
+network or LAN only; do not publish it directly to the Internet. The default
+Compose root filesystem remains writable so operators can add models and
+packages without rebuilding. Operators may enable read-only mode after their
+runtime assets have been provisioned.
+
 ## Image Contract
 
 Every published image must:
@@ -50,9 +57,10 @@ run against that candidate's immutable digest. Only after all checks pass does
 one metadata-only promotion attach mutable, v0.9.2 release, and full source-SHA
 tags to that exact digest; the image is not rebuilt during promotion. The image
 labels and workflow summary record the locked upstream index digest and release
-commit from `aio/provenance/components.lock.json`. Workflow concurrency cancels
-superseded runs, and promotion reads the authoritative remote branch tip again
-immediately before moving any tag. Therefore `aio-web-latest` and
+commit from `aio/provenance/components.lock.json`. Workflow concurrency
+serializes builds for the publishing branch, and promotion reads the
+authoritative remote branch tip again immediately before moving any tag.
+Therefore `aio-web-latest` and
 `aio-web-all-cpu-preload` can move only for the current publishing-branch tip.
 
 ## v0.9.2 dependency lock identity

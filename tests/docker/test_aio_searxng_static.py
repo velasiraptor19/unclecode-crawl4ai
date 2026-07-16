@@ -23,6 +23,10 @@ def test_published_source_is_digest_pinned_and_void_venv_is_excluded():
     assert "rm -rf /usr/local/searxng/.venv" in DOCKERFILE
     assert "COPY --from=searxng-sanitized" in DOCKERFILE
     assert "COPY --from=searxng-source" not in DOCKERFILE
+    assert (
+        "python:3.12-slim-bookworm@sha256:"
+        "72d3d75f2639ab82b34b29390ad3d6e0827c775befee94edda8e9976818f488d"
+    ) in DOCKERFILE
 
 
 def test_one_locked_python_environment_contains_searxng_server_dependencies():
@@ -48,6 +52,7 @@ def test_searxng_runs_as_appuser_on_lan_port_with_writable_cache():
     assert "/var/cache/searxng:uid=999,gid=999,mode=0700" in COMPOSE
     assert "INSTALL_TYPE: ${INSTALL_TYPE:-all}" in COMPOSE
     assert "PRELOAD_MODELS: ${PRELOAD_MODELS:-true}" in COMPOSE
+    assert "read_only: false" in COMPOSE
 
 
 def test_smoke_covers_health_config_real_search_and_duplicate_venv():
