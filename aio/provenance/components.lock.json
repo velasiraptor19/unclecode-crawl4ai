@@ -13,8 +13,9 @@
           "source": null,
           "version": null
         },
-        "release": {
+        "source": {
           "is_rebuild": false,
+          "method": "github-release",
           "published_source_commit": "7e801521428ee12509994d39151006f64055ebe3",
           "release_commit": "7e801521428ee12509994d39151006f64055ebe3",
           "release_tag": "v0.9.2",
@@ -32,8 +33,35 @@
       "platform_digest": "sha256:edefa574dea3beafba7521c5195b5ee5017e77296ef429ae4a8e71585c711116",
       "requested_image": "unclecode/crawl4ai:latest",
       "resolved_image": "unclecode/crawl4ai@sha256:bd36741e7bdd35ddc1a05d9183e1d6d8cefb61dd640d944a25d026b76e917690"
+    },
+    {
+      "evidence": {
+        "method": "oci-labels",
+        "missing_oci_labels": [],
+        "oci": {
+          "revision": "7b2199ecdf75a00981583fa2f392a785dfc4fcee",
+          "source": "https://github.com/searxng/searxng",
+          "version": "2026.7.15-7b2199ecd"
+        },
+        "source": {
+          "method": "github-commit",
+          "published_source_commit": "7b2199ecdf75a00981583fa2f392a785dfc4fcee",
+          "repository": "searxng/searxng"
+        },
+        "version": "2026.7.15-7b2199ecd"
+      },
+      "index_digest": "sha256:268fdb05efbb7b4fdc5957a20c42389bfb1b1b27b5eddeb98f75ec80c45b960f",
+      "index_manifest_base64": "eyJzY2hlbWFWZXJzaW9uIjoyLCJtZWRpYVR5cGUiOiJhcHBsaWNhdGlvbi92bmQub2NpLmltYWdlLmluZGV4LnYxK2pzb24iLCJtYW5pZmVzdHMiOlt7Im1lZGlhVHlwZSI6ImFwcGxpY2F0aW9uL3ZuZC5vY2kuaW1hZ2UubWFuaWZlc3QudjEranNvbiIsImRpZ2VzdCI6InNoYTI1NjoxYTE5NmU1MmVmMGFlYzUyYTQ2MjY2N2U1YzU0MDMwODQwZjk0ODY1YzEzZTEyNjAwMDRjYWExMGNjYTZiZTQ5Iiwic2l6ZSI6MTMwMCwicGxhdGZvcm0iOnsiYXJjaGl0ZWN0dXJlIjoiYW1kNjQiLCJvcyI6ImxpbnV4In19LHsibWVkaWFUeXBlIjoiYXBwbGljYXRpb24vdm5kLm9jaS5pbWFnZS5tYW5pZmVzdC52MStqc29uIiwiZGlnZXN0Ijoic2hhMjU2OmIyYzM4OWViMjIxZDk2ZmMzNzlkMmQ0ZDg1Yjg2MzM3NTE0MmQyZjQ3OTUxYjY0MjYxODA4NjI0N2E0MGUxMWQiLCJzaXplIjoxMzAwLCJwbGF0Zm9ybSI6eyJhcmNoaXRlY3R1cmUiOiJhcm02NCIsIm9zIjoibGludXgifX0seyJtZWRpYVR5cGUiOiJhcHBsaWNhdGlvbi92bmQub2NpLmltYWdlLm1hbmlmZXN0LnYxK2pzb24iLCJkaWdlc3QiOiJzaGEyNTY6ZGJhYjc4ZjE3MjQ0OTRhY2UxZGQwNDFlYzM0YjcyZTJhNGE0YTY5Y2NiZmEzZDAzOGFhNGYyM2JmMjFiZjI5ZiIsInNpemUiOjEzMDAsInBsYXRmb3JtIjp7ImFyY2hpdGVjdHVyZSI6ImFybSIsIm9zIjoibGludXgiLCJ2YXJpYW50IjoidjcifX1dfQ==",
+      "name": "searxng",
+      "platform": {
+        "architecture": "amd64",
+        "os": "linux"
+      },
+      "platform_digest": "sha256:1a196e52ef0aec52a462667e5c54030840f94865c13e1260004caa10cca6be49",
+      "requested_image": "docker.io/searxng/searxng:latest",
+      "resolved_image": "docker.io/searxng/searxng@sha256:268fdb05efbb7b4fdc5957a20c42389bfb1b1b27b5eddeb98f75ec80c45b960f"
     }
   ],
-  "schema_version": 1,
+  "schema_version": 2,
   "status": "ready"
 }

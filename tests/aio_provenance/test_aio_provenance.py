@@ -26,32 +26,48 @@ class Tests(unittest.TestCase):
             "source": {
                 "repository": "example/tool",
                 "url": "https://github.com/example/tool",
-                "release_tag_from_oci_version": "v{version}",
-                "reviewed_fallback": {
-                    "version": "1.2.3",
-                    "release_tag": "v1.2.3",
-                    "reviewed_index_digest": p.digest_bytes(self.raw_index()),
-                    "reviewed_platform_digest": "sha256:" + "b" * 64,
-                    "release_commit": "e" * 40,
-                    "published_source_commit": "d" * 40,
-                    "review_reason": "Reviewed because labels are absent.",
+                "verification": {
+                    "method": "github-release",
+                    "release_tag_from_oci_version": "v{version}",
+                    "reviewed_fallback": {
+                        "version": "1.2.3",
+                        "release_tag": "v1.2.3",
+                        "reviewed_index_digest": p.digest_bytes(self.raw_index()),
+                        "reviewed_platform_digest": "sha256:" + "b" * 64,
+                        "release_commit": "e" * 40,
+                        "published_source_commit": "d" * 40,
+                        "review_reason": "Reviewed because labels are absent.",
+                    },
                 },
             },
         }
 
+    def commit_component(self):
+        component = self.component()
+        component["source"]["verification"] = {"method": "github-commit"}
+        return component
+
     def spec(self, state="ready"):
-        return {"schema_version": 1, "lock_state": state, "components": [self.component()]}
+        return {"schema_version": p.SCHEMA_VERSION, "lock_state": state, "components": [self.component()]}
 
     def inspect(self, _reference):
         return json.loads((FIX / "imagetools-platform.json").read_text())
 
     def evidence(self, repository, tag, commit):
         return {
+            "method": "github-release",
             "repository": repository,
             "release_tag": tag,
             "release_commit": "e" * 40,
             "published_source_commit": commit,
             "is_rebuild": commit != "e" * 40,
+        }
+
+    def commit_evidence(self, repository, commit):
+        return {
+            "method": "github-commit",
+            "repository": repository,
+            "published_source_commit": commit,
         }
 
     def item(self, component=None, inspector=None, raw=None, evidence=None):
@@ -71,7 +87,7 @@ class Tests(unittest.TestCase):
 
     def ready_lock(self, fallback=False):
         inspector = self.fallback_inspector() if fallback else self.inspect
-        return {"schema_version": 1, "status": "ready", "components": [self.item(inspector=inspector)]}
+        return {"schema_version": p.SCHEMA_VERSION, "status": "ready", "components": [self.item(inspector=inspector)]}
 
     def test_oci_path_and_valid_attestations_select_single_platform(self):
         item = self.item()
@@ -79,16 +95,108 @@ class Tests(unittest.TestCase):
         self.assertEqual(p.digest_bytes(base64.b64decode(item["index_manifest_base64"])), item["index_digest"])
         p.verify(self.spec(), self.ready_lock())
 
+    def test_commit_only_component_uses_complete_oci_and_exact_github_commit(self):
+        component = self.commit_component()
+        release_resolver = mock.Mock(side_effect=AssertionError("release API must not be used"))
+        commit_resolver = mock.Mock(side_effect=self.commit_evidence)
+        item = p.resolve_component(
+            component,
+            self.inspect,
+            release_resolver,
+            lambda _reference: self.raw_index(),
+            commit_resolver,
+        )
+        self.assertEqual(item["evidence"]["source"]["method"], "github-commit")
+        self.assertEqual(item["evidence"]["version"], "1.2.3")
+        release_resolver.assert_not_called()
+        commit_resolver.assert_called_once_with("example/tool", "d" * 40)
+        spec = {"schema_version": p.SCHEMA_VERSION, "lock_state": "ready", "components": [component]}
+        lock = {"schema_version": p.SCHEMA_VERSION, "status": "ready", "components": [item]}
+        p.verify(spec, lock)
+
+    def test_commit_only_rejects_fallback_release_fields_and_incomplete_oci(self):
+        component = self.commit_component()
+        component["source"]["verification"]["release_tag_from_oci_version"] = "v{version}"
+        with self.assertRaisesRegex(p.ProvenanceError, "malformed commit verification"):
+            p.validate_spec({"schema_version": p.SCHEMA_VERSION, "lock_state": "ready", "components": [component]})
+
+        component = self.commit_component()
+        for labels in ({}, {"org.opencontainers.image.revision": "d" * 40}):
+            with self.subTest(labels=labels), self.assertRaisesRegex(
+                    p.ProvenanceError, "requires complete OCI"):
+                p.resolve_component(
+                    component,
+                    self.fallback_inspector(labels),
+                    raw_reader=lambda _reference: self.raw_index(),
+                    commit_evidence_resolver=self.commit_evidence,
+                )
+
+    def test_commit_only_rejects_forged_or_release_shaped_lock_evidence(self):
+        component = self.commit_component()
+        item = p.resolve_component(
+            component,
+            self.inspect,
+            raw_reader=lambda _reference: self.raw_index(),
+            commit_evidence_resolver=self.commit_evidence,
+        )
+        spec = {"schema_version": p.SCHEMA_VERSION, "lock_state": "ready", "components": [component]}
+
+        forged = copy.deepcopy(item)
+        forged["evidence"]["source"]["published_source_commit"] = "c" * 40
+        with self.assertRaisesRegex(p.ProvenanceError, "inconsistent OCI evidence"):
+            p.verify(spec, {"schema_version": p.SCHEMA_VERSION, "status": "ready", "components": [forged]})
+
+        release_shaped = copy.deepcopy(item)
+        release_shaped["evidence"]["source"]["release_tag"] = "v1.2.3"
+        with self.assertRaisesRegex(p.ProvenanceError, "malformed commit evidence"):
+            p.verify(spec, {"schema_version": p.SCHEMA_VERSION, "status": "ready", "components": [release_shaped]})
+
+    def test_commit_resolver_checks_exact_commit_without_release_or_branch_lookup(self):
+        commit = "d" * 40
+        with mock.patch.object(p, "run_json", return_value={"sha": commit}) as run:
+            self.assertEqual(p.resolve_commit_evidence("example/tool", commit)["published_source_commit"], commit)
+            run.assert_called_once_with(["gh", "api", f"repos/example/tool/commits/{commit}"])
+        with mock.patch.object(p, "run_json", return_value={"sha": "c" * 40}):
+            with self.assertRaisesRegex(p.ProvenanceError, "unverifiable"):
+                p.resolve_commit_evidence("example/tool", commit)
+        with mock.patch.object(p, "run_json") as run:
+            with self.assertRaisesRegex(p.ProvenanceError, "exact commit"):
+                p.resolve_commit_evidence("example/tool", "main")
+            run.assert_not_called()
+
+    def test_checked_in_searxng_lock_contains_exact_reviewed_publication(self):
+        spec = json.loads((ROOT / "aio/provenance/components.json").read_text())
+        lock = json.loads((ROOT / "aio/provenance/components.lock.json").read_text())
+        p.verify(spec, lock)
+        searxng = next(item for item in lock["components"] if item["name"] == "searxng")
+        self.assertEqual(
+            searxng["index_digest"],
+            "sha256:268fdb05efbb7b4fdc5957a20c42389bfb1b1b27b5eddeb98f75ec80c45b960f",
+        )
+        self.assertEqual(
+            searxng["platform_digest"],
+            "sha256:1a196e52ef0aec52a462667e5c54030840f94865c13e1260004caa10cca6be49",
+        )
+        self.assertEqual(searxng["evidence"]["version"], "2026.7.15-7b2199ecd")
+        self.assertEqual(
+            searxng["evidence"]["source"],
+            {
+                "method": "github-commit",
+                "published_source_commit": "7b2199ecdf75a00981583fa2f392a785dfc4fcee",
+                "repository": "searxng/searxng",
+            },
+        )
+
     def test_fallback_records_missing_labels_and_rebuild(self):
         item = self.item(inspector=self.fallback_inspector())
         self.assertEqual(item["evidence"]["method"], "reviewed-release-fallback")
         self.assertEqual(len(item["evidence"]["missing_oci_labels"]), 3)
-        self.assertTrue(item["evidence"]["release"]["is_rebuild"])
-        p.verify(self.spec(), {"schema_version": 1, "status": "ready", "components": [item]})
+        self.assertTrue(item["evidence"]["source"]["is_rebuild"])
+        p.verify(self.spec(), {"schema_version": p.SCHEMA_VERSION, "status": "ready", "components": [item]})
 
     def test_stale_or_substituted_latest_rejected_by_fallback(self):
         component = self.component()
-        component["source"]["reviewed_fallback"]["reviewed_index_digest"] = "sha256:" + "a" * 64
+        component["source"]["verification"]["reviewed_fallback"]["reviewed_index_digest"] = "sha256:" + "a" * 64
         with self.assertRaisesRegex(p.ProvenanceError, "differs from reviewed fallback digests"):
             self.item(component=component, inspector=self.fallback_inspector())
 
@@ -98,7 +206,7 @@ class Tests(unittest.TestCase):
 
         lock = self.ready_lock(fallback=True)
         spec = self.spec()
-        spec["components"][0]["source"]["reviewed_fallback"]["reviewed_index_digest"] = "sha256:" + "a" * 64
+        spec["components"][0]["source"]["verification"]["reviewed_fallback"]["reviewed_index_digest"] = "sha256:" + "a" * 64
         with self.assertRaisesRegex(p.ProvenanceError, "fallback differs"):
             p.verify(spec, lock)
 
@@ -139,14 +247,14 @@ class Tests(unittest.TestCase):
 
     def test_forged_release_and_rebuild_commits_rejected_offline_and_online(self):
         lock = self.ready_lock(fallback=True)
-        release = lock["components"][0]["evidence"]["release"]
+        release = lock["components"][0]["evidence"]["source"]
         release["release_commit"] = "c" * 40
         release["is_rebuild"] = True
         with self.assertRaisesRegex(p.ProvenanceError, "fallback differs"):
             p.verify(self.spec(), lock)
 
         lock = self.ready_lock(fallback=True)
-        release = lock["components"][0]["evidence"]["release"]
+        release = lock["components"][0]["evidence"]["source"]
         release["published_source_commit"] = "c" * 40
         release["is_rebuild"] = True
         with self.assertRaisesRegex(p.ProvenanceError, "fallback differs"):
@@ -172,9 +280,10 @@ class Tests(unittest.TestCase):
     def test_branch_and_floating_release_identities_rejected(self):
         for tag in ("main", "master", "latest", "stable", "vlatest", "refs/heads/main"):
             spec = self.spec()
-            fallback = spec["components"][0]["source"]["reviewed_fallback"]
+            verification = spec["components"][0]["source"]["verification"]
+            fallback = verification["reviewed_fallback"]
             fallback["release_tag"] = tag
-            spec["components"][0]["source"]["release_tag_from_oci_version"] = tag
+            verification["release_tag_from_oci_version"] = tag
             with self.subTest(boundary="spec", tag=tag), self.assertRaisesRegex(
                     p.ProvenanceError, "invalid reviewed fallback"):
                 p.validate_spec(spec)
@@ -210,12 +319,12 @@ class Tests(unittest.TestCase):
             self.item(raw=json.dumps(duplicate).encode())
 
     def test_bootstrap_vs_ready_contract_and_invariants(self):
-        bootstrap = {"schema_version": 1, "status": "bootstrap", "components": []}
+        bootstrap = {"schema_version": p.SCHEMA_VERSION, "status": "bootstrap", "components": []}
         p.verify(self.spec("bootstrap"), bootstrap, require_ready=False)
         with self.assertRaisesRegex(p.ProvenanceError, "non-buildable"):
             p.verify(self.spec("bootstrap"), bootstrap)
         lock = self.ready_lock()
-        lock["components"][0]["evidence"]["release"]["is_rebuild"] = False
+        lock["components"][0]["evidence"]["source"]["is_rebuild"] = False
         with self.assertRaisesRegex(p.ProvenanceError, "rebuild flag"):
             p.verify(self.spec(), lock)
 

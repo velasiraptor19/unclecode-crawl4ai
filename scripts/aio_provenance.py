@@ -29,6 +29,7 @@ MANIFEST_MEDIA_TYPES = {
     "application/vnd.docker.distribution.manifest.v2+json",
 }
 ATTESTATION_TYPE = "attestation-manifest"
+SCHEMA_VERSION = 2
 
 
 class ProvenanceError(ValueError):
@@ -155,9 +156,22 @@ def resolve_release_evidence(repository, tag, published_commit):
         raise ProvenanceError(f"{tag} is not the official latest release")
     if commit.get("sha") != published_commit:
         raise ProvenanceError("published source commit is unverifiable")
-    return {"repository": repository, "release_tag": tag, "release_commit": release_commit,
+    return {"method": "github-release", "repository": repository, "release_tag": tag, "release_commit": release_commit,
             "published_source_commit": published_commit,
             "is_rebuild": published_commit != release_commit}
+
+
+def resolve_commit_evidence(repository, published_commit):
+    if not is_commit(published_commit):
+        raise ProvenanceError("published source revision must be an exact commit")
+    try:
+        commit = run_json(["gh", "api", f"repos/{repository}/commits/{published_commit}"])
+    except subprocess.CalledProcessError as exc:
+        raise ProvenanceError("published source commit is missing or unverifiable") from exc
+    if commit.get("sha") != published_commit:
+        raise ProvenanceError("published source commit is unverifiable")
+    return {"method": "github-commit", "repository": repository,
+            "published_source_commit": published_commit}
 
 
 def require_dict(value, message):
@@ -178,8 +192,8 @@ def normalized_url(value):
 
 def validate_spec(spec):
     exact_keys(spec, ("schema_version", "lock_state", "components"), "malformed spec")
-    if spec["schema_version"] != 1 or spec["lock_state"] not in {"bootstrap", "ready"} or not isinstance(spec["components"], list):
-        raise ProvenanceError("spec requires schema_version 1, bootstrap/ready lock_state, and components array")
+    if spec["schema_version"] != SCHEMA_VERSION or spec["lock_state"] not in {"bootstrap", "ready"} or not isinstance(spec["components"], list):
+        raise ProvenanceError(f"spec requires schema_version {SCHEMA_VERSION}, bootstrap/ready lock_state, and components array")
     names = set()
     for component in spec["components"]:
         exact_keys(component, ("name", "image", "platform", "source"), "malformed component")
@@ -195,13 +209,24 @@ def validate_spec(spec):
         if platform != PLATFORM:
             raise ProvenanceError(f"{name}: Phase 0 requires linux/amd64")
         source = require_dict(component.get("source"), f"{name}: source is required")
-        exact_keys(source, ("repository", "url", "release_tag_from_oci_version", "reviewed_fallback"), f"{name}: malformed source")
-        for field in ("repository", "url", "release_tag_from_oci_version"):
+        exact_keys(source, ("repository", "url", "verification"), f"{name}: malformed source")
+        for field in ("repository", "url"):
             if not isinstance(source.get(field), str) or not source[field]:
                 raise ProvenanceError(f"{name}: source.{field} is required")
         if normalized_url(source["url"]) != f"https://github.com/{source['repository']}":
             raise ProvenanceError(f"{name}: source URL mismatch with repository")
-        fallback = source["reviewed_fallback"]
+        verification = require_dict(source["verification"], f"{name}: source verification is required")
+        method = verification.get("method")
+        if method == "github-commit":
+            exact_keys(verification, ("method",), f"{name}: malformed commit verification")
+            continue
+        if method != "github-release":
+            raise ProvenanceError(f"{name}: unknown source verification method")
+        exact_keys(verification, ("method", "release_tag_from_oci_version", "reviewed_fallback"),
+                   f"{name}: malformed release verification")
+        if not isinstance(verification["release_tag_from_oci_version"], str) or not verification["release_tag_from_oci_version"]:
+            raise ProvenanceError(f"{name}: release tag mapping is required")
+        fallback = verification["reviewed_fallback"]
         exact_keys(fallback, ("version", "release_tag", "reviewed_index_digest", "reviewed_platform_digest",
                               "release_commit", "published_source_commit", "review_reason"), f"{name}: malformed fallback")
         if (not isinstance(fallback["version"], str) or not fallback["version"]
@@ -212,14 +237,14 @@ def validate_spec(spec):
                 or not is_commit(fallback["release_commit"])
                 or not is_commit(fallback["published_source_commit"])):
             raise ProvenanceError(f"{name}: invalid reviewed fallback")
-        if fallback["release_tag"] != source["release_tag_from_oci_version"].format(version=fallback["version"]):
+        if fallback["release_tag"] != verification["release_tag_from_oci_version"].format(version=fallback["version"]):
             raise ProvenanceError(f"{name}: inconsistent fallback release mapping")
         if not isinstance(fallback["review_reason"], str) or not fallback["review_reason"]:
             raise ProvenanceError(f"{name}: fallback requires review_reason")
 
 
-def resolve_component(component, inspector=inspect_image, evidence_resolver=resolve_release_evidence,
-                      raw_reader=inspect_raw_manifest):
+def resolve_component(component, inspector=inspect_image, release_evidence_resolver=resolve_release_evidence,
+                      raw_reader=inspect_raw_manifest, commit_evidence_resolver=resolve_commit_evidence):
     raw_index = raw_reader(component["image"])
     index = parse_index(raw_index)
     index_digest = digest_bytes(raw_index)
@@ -238,15 +263,18 @@ def resolve_component(component, inspector=inspect_image, evidence_resolver=reso
         if value is not None and (not isinstance(value, str) or not value):
             raise ProvenanceError(f"invalid present OCI {field} label")
     missing = [OCI_LABELS[field] for field, value in oci.items() if value is None]
-    source, fallback = component["source"], component["source"]["reviewed_fallback"]
+    source = component["source"]
+    verification = source["verification"]
+    fallback = verification.get("reviewed_fallback")
     if oci["source"] is not None and normalized_url(oci["source"]) != normalized_url(source["url"]):
         raise ProvenanceError("invalid OCI revision/source evidence")
     if oci["revision"] is not None and not is_commit(oci["revision"]):
         raise ProvenanceError("invalid OCI revision/source evidence")
     if not missing:
         version, published_commit, method = oci["version"], oci["revision"], "oci-labels"
-        tag = source["release_tag_from_oci_version"].format(version=version)
     else:
+        if verification["method"] != "github-release":
+            raise ProvenanceError("commit verification requires complete OCI provenance labels")
         expected_partial = {
             "version": fallback["version"],
             "revision": fallback["published_source_commit"],
@@ -260,10 +288,14 @@ def resolve_component(component, inspector=inspect_image, evidence_resolver=reso
         if index_digest != fallback["reviewed_index_digest"] or platform_digest != fallback["reviewed_platform_digest"]:
             raise ProvenanceError("published latest differs from reviewed fallback digests")
         version, tag, published_commit, method = fallback["version"], fallback["release_tag"], fallback["published_source_commit"], "reviewed-release-fallback"
-    release = evidence_resolver(source["repository"], tag, published_commit)
+    if verification["method"] == "github-release":
+        tag = verification["release_tag_from_oci_version"].format(version=version)
+        source_evidence = release_evidence_resolver(source["repository"], tag, published_commit)
+    else:
+        source_evidence = commit_evidence_resolver(source["repository"], published_commit)
     if method == "reviewed-release-fallback" and (
-            release.get("release_commit") != fallback["release_commit"]
-            or release.get("published_source_commit") != fallback["published_source_commit"]):
+            source_evidence.get("release_commit") != fallback["release_commit"]
+            or source_evidence.get("published_source_commit") != fallback["published_source_commit"]):
         raise ProvenanceError("release evidence differs from reviewed fallback commits")
     return {
         "name": component["name"], "requested_image": component["image"],
@@ -272,15 +304,15 @@ def resolve_component(component, inspector=inspect_image, evidence_resolver=reso
         "platform_digest": platform_digest,
         "index_manifest_base64": base64.b64encode(raw_index).decode("ascii"),
         "evidence": {"method": method, "version": version, "oci": oci,
-                     "missing_oci_labels": missing, "release": release},
+                     "missing_oci_labels": missing, "source": source_evidence},
     }
 
 
 def verify(spec, lock, require_ready=True):
     validate_spec(spec)
     exact_keys(lock, ("schema_version", "status", "components"), "malformed lock")
-    if lock["schema_version"] != 1 or lock["status"] not in {"bootstrap", "ready"} or not isinstance(lock["components"], list):
-        raise ProvenanceError("lock requires schema_version 1, bootstrap/ready status, and components array")
+    if lock["schema_version"] != SCHEMA_VERSION or lock["status"] not in {"bootstrap", "ready"} or not isinstance(lock["components"], list):
+        raise ProvenanceError(f"lock requires schema_version {SCHEMA_VERSION}, bootstrap/ready status, and components array")
     if lock["status"] != spec["lock_state"]:
         raise ProvenanceError("spec and lock state disagree")
     if require_ready and lock["status"] != "ready":
@@ -327,19 +359,30 @@ def verify(spec, lock, require_ready=True):
         if item.get("platform") != component["platform"]:
             raise ProvenanceError(f"{name}: platform differs from spec")
         evidence = require_dict(item["evidence"], f"{name}: evidence missing")
-        exact_keys(evidence, ("method", "version", "oci", "missing_oci_labels", "release"), f"{name}: malformed evidence")
-        oci, release = require_dict(evidence["oci"], "malformed OCI evidence"), require_dict(evidence["release"], "malformed release evidence")
+        exact_keys(evidence, ("method", "version", "oci", "missing_oci_labels", "source"), f"{name}: malformed evidence")
+        oci = require_dict(evidence["oci"], "malformed OCI evidence")
+        source_evidence = require_dict(evidence["source"], "malformed source evidence")
         exact_keys(oci, OCI_LABELS.keys(), "malformed OCI evidence")
-        exact_keys(release, ("repository", "release_tag", "release_commit", "published_source_commit", "is_rebuild"), "malformed release evidence")
-        if release["repository"] != component["source"]["repository"]:
-            raise ProvenanceError(f"{name}: release repository differs from spec")
-        tag = component["source"]["release_tag_from_oci_version"].format(version=evidence["version"])
-        if not is_version_release_tag(tag) or release["release_tag"] != tag:
-            raise ProvenanceError(f"{name}: invalid release tag")
-        if not is_commit(release["release_commit"]) or not is_commit(release["published_source_commit"]):
-            raise ProvenanceError(f"{name}: malformed source commit")
-        if release["is_rebuild"] is not (release["published_source_commit"] != release["release_commit"]):
-            raise ProvenanceError(f"{name}: inconsistent rebuild flag")
+        verification = component["source"]["verification"]
+        if verification["method"] == "github-release":
+            exact_keys(source_evidence, ("method", "repository", "release_tag", "release_commit",
+                                        "published_source_commit", "is_rebuild"), "malformed release evidence")
+            if source_evidence["method"] != "github-release":
+                raise ProvenanceError(f"{name}: source verification method differs from spec")
+            tag = verification["release_tag_from_oci_version"].format(version=evidence["version"])
+            if not is_version_release_tag(tag) or source_evidence["release_tag"] != tag:
+                raise ProvenanceError(f"{name}: invalid release tag")
+            if not is_commit(source_evidence["release_commit"]) or not is_commit(source_evidence["published_source_commit"]):
+                raise ProvenanceError(f"{name}: malformed source commit")
+            if source_evidence["is_rebuild"] is not (source_evidence["published_source_commit"] != source_evidence["release_commit"]):
+                raise ProvenanceError(f"{name}: inconsistent rebuild flag")
+        else:
+            exact_keys(source_evidence, ("method", "repository", "published_source_commit"),
+                       "malformed commit evidence")
+            if source_evidence["method"] != "github-commit" or not is_commit(source_evidence["published_source_commit"]):
+                raise ProvenanceError(f"{name}: malformed commit evidence")
+        if source_evidence["repository"] != component["source"]["repository"]:
+            raise ProvenanceError(f"{name}: source repository differs from spec")
         for field, value in oci.items():
             if value is not None and (not isinstance(value, str) or not value):
                 raise ProvenanceError(f"{name}: invalid present OCI {field} label")
@@ -349,10 +392,12 @@ def verify(spec, lock, require_ready=True):
         if evidence["method"] == "oci-labels":
             if missing or normalized_url(oci["source"]) != normalized_url(component["source"]["url"]):
                 raise ProvenanceError(f"{name}: OCI source mismatch")
-            if oci["version"] != evidence["version"] or oci["revision"] != release["published_source_commit"]:
+            if oci["version"] != evidence["version"] or oci["revision"] != source_evidence["published_source_commit"]:
                 raise ProvenanceError(f"{name}: inconsistent OCI evidence")
         elif evidence["method"] == "reviewed-release-fallback":
-            fallback = component["source"]["reviewed_fallback"]
+            if verification["method"] != "github-release":
+                raise ProvenanceError(f"{name}: commit verification cannot use fallback evidence")
+            fallback = verification["reviewed_fallback"]
             expected_partial = {"version": fallback["version"], "revision": fallback["published_source_commit"],
                                 "source": component["source"]["url"]}
             partial_conflict = any(value is not None and (
@@ -361,9 +406,9 @@ def verify(spec, lock, require_ready=True):
             if (not missing or partial_conflict or evidence["version"] != fallback["version"]
                     or item["index_digest"] != fallback["reviewed_index_digest"]
                     or item["platform_digest"] != fallback["reviewed_platform_digest"]
-                    or release["release_tag"] != fallback["release_tag"]
-                    or release["release_commit"] != fallback["release_commit"]
-                    or release["published_source_commit"] != fallback["published_source_commit"]):
+                    or source_evidence["release_tag"] != fallback["release_tag"]
+                    or source_evidence["release_commit"] != fallback["release_commit"]
+                    or source_evidence["published_source_commit"] != fallback["published_source_commit"]):
                 raise ProvenanceError(f"{name}: fallback differs from reviewed spec")
         else:
             raise ProvenanceError(f"{name}: unknown evidence method")
@@ -388,7 +433,8 @@ def main(argv=None):
         if args.command == "validate-spec":
             pass
         elif args.command == "resolve":
-            lock = {"schema_version": 1, "status": "ready", "components": [resolve_component(c) for c in spec["components"]]}
+            lock = {"schema_version": SCHEMA_VERSION, "status": "ready", "components": [resolve_component(c) for c in spec["components"]]}
+            verify(spec, lock)
             Path(args.output).write_text(json.dumps(lock, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         else:
             verify(spec, load_json(args.lock), require_ready=args.command == "verify")

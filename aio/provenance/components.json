@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "lock_state": "ready",
   "components": [
     {
@@ -9,15 +9,30 @@
       "source": {
         "repository": "unclecode/crawl4ai",
         "url": "https://github.com/unclecode/crawl4ai",
-        "release_tag_from_oci_version": "v{version}",
-        "reviewed_fallback": {
-          "version": "0.9.2",
-          "release_tag": "v0.9.2",
-          "reviewed_index_digest": "sha256:bd36741e7bdd35ddc1a05d9183e1d6d8cefb61dd640d944a25d026b76e917690",
-          "reviewed_platform_digest": "sha256:edefa574dea3beafba7521c5195b5ee5017e77296ef429ae4a8e71585c711116",
-          "release_commit": "7e801521428ee12509994d39151006f64055ebe3",
-          "published_source_commit": "7e801521428ee12509994d39151006f64055ebe3",
-          "review_reason": "Published latest lacks OCI provenance labels; GitHub release v0.9.2 and successful Docker release run 29400999453 both resolve to reviewed commit 7e801521428ee12509994d39151006f64055ebe3."
+        "verification": {
+          "method": "github-release",
+          "release_tag_from_oci_version": "v{version}",
+          "reviewed_fallback": {
+            "version": "0.9.2",
+            "release_tag": "v0.9.2",
+            "reviewed_index_digest": "sha256:bd36741e7bdd35ddc1a05d9183e1d6d8cefb61dd640d944a25d026b76e917690",
+            "reviewed_platform_digest": "sha256:edefa574dea3beafba7521c5195b5ee5017e77296ef429ae4a8e71585c711116",
+            "release_commit": "7e801521428ee12509994d39151006f64055ebe3",
+            "published_source_commit": "7e801521428ee12509994d39151006f64055ebe3",
+            "review_reason": "Published latest lacks OCI provenance labels; GitHub release v0.9.2 and successful Docker release run 29400999453 both resolve to reviewed commit 7e801521428ee12509994d39151006f64055ebe3."
+          }
+        }
+      }
+    },
+    {
+      "name": "searxng",
+      "image": "docker.io/searxng/searxng:latest",
+      "platform": {"os": "linux", "architecture": "amd64"},
+      "source": {
+        "repository": "searxng/searxng",
+        "url": "https://github.com/searxng/searxng",
+        "verification": {
+          "method": "github-commit"
         }
       }
     }
