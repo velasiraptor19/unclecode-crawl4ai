@@ -329,7 +329,8 @@ async def handle_markdown_request(
     config: Optional[dict] = None,
     provider: Optional[str] = None,
     temperature: Optional[float] = None,
-    base_url: Optional[str] = None
+    base_url: Optional[str] = None,
+    crawler_config: Optional[dict] = None,
 ) -> str:
     """Handle markdown generation requests."""
     crawler = None
@@ -369,6 +370,16 @@ async def handle_markdown_request(
             md_generator = DefaultMarkdownGenerator(content_filter=content_filter)
 
         cache_mode = CacheMode.ENABLED if cache == "1" else CacheMode.WRITE_ONLY
+        try:
+            crawl_cfg = CrawlerRunConfig.load(
+                crawler_config or {}, provenance=Provenance.UNTRUSTED
+            )
+        except UntrustedConfigError as e:
+            raise HTTPException(status_code=400, detail=f"Rejected config: {e}")
+        if "cache_mode" not in (crawler_config or {}):
+            crawl_cfg.cache_mode = cache_mode
+        crawl_cfg.markdown_generator = md_generator
+        crawl_cfg.scraping_strategy = LXMLWebScrapingStrategy()
 
         from crawler_pool import get_crawler, release_crawler
         from utils import load_config as _load_config
@@ -382,11 +393,7 @@ async def handle_markdown_request(
         crawler = await get_crawler(browser_cfg)
         result = await crawler.arun(
             url=decoded_url,
-            config=CrawlerRunConfig(
-                markdown_generator=md_generator,
-                scraping_strategy=LXMLWebScrapingStrategy(),
-                cache_mode=cache_mode
-            )
+            config=crawl_cfg
         )
 
         if not result.success:
@@ -599,11 +606,16 @@ def create_task_response(task: dict, task_id: str, base_url: str) -> dict:
 
     return response
 
-async def stream_results(crawler: AsyncWebCrawler, results_gen: AsyncGenerator) -> AsyncGenerator[bytes, None]:
+async def stream_results(
+    crawler: AsyncWebCrawler,
+    results_gen: AsyncGenerator,
+    output_control=None,
+) -> AsyncGenerator[bytes, None]:
     """Stream results with heartbeats and completion markers."""
     import json
     from utils import datetime_handler
     from crawler_pool import release_crawler
+    from output_control import apply_output_control
 
     try:
         async for result in results_gen:
@@ -617,6 +629,7 @@ async def stream_results(crawler: AsyncWebCrawler, results_gen: AsyncGenerator) 
                 # If PDF exists, encode it to base64
                 if result_dict.get('pdf') is not None:
                     result_dict['pdf'] = b64encode(result_dict['pdf']).decode('utf-8')
+                result_dict = apply_output_control(result_dict, output_control)
                 logger.info(f"Streaming result for {result_dict.get('url', 'unknown')}")
                 data = json.dumps(result_dict, default=datetime_handler) + "\n"
                 yield data.encode('utf-8')

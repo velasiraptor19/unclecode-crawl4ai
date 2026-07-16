@@ -38,6 +38,7 @@ from schemas import (
     PDFRequest,
     JSEndpointRequest,
 )
+from output_control import apply_output_control, apply_output_control_to_batch
 
 from utils import (
     FilterType, load_config, setup_logging, verify_email_domain,
@@ -481,6 +482,13 @@ def _config_from_json(data: dict) -> dict:
     return obj.dump()
 
 
+def _load_untrusted_crawler_config(data: Optional[dict]) -> CrawlerRunConfig:
+    try:
+        return CrawlerRunConfig.load(data or {}, provenance=Provenance.UNTRUSTED)
+    except UntrustedConfigError as e:
+        raise HTTPException(400, f"Rejected config: {e}")
+
+
 # ── job router ──────────────────────────────────────────────
 app.include_router(init_job_router(redis, config, token_dep))
 
@@ -589,16 +597,17 @@ async def get_markdown(
     # the LLM endpoint is server-derived from the provider name only.
     markdown = await handle_markdown_request(
         body.url, body.f, body.q, body.c, config, body.provider,
-        body.temperature
+        body.temperature, crawler_config=body.crawler_config
     )
-    return JSONResponse({
+    response = {
         "url": body.url,
         "filter": body.f,
         "query": body.q,
         "cache": body.c,
         "markdown": markdown,
         "success": True
-    })
+    }
+    return JSONResponse(apply_output_control(response, body.output_control))
 
 
 @app.post("/html")
@@ -614,7 +623,7 @@ async def generate_html(
     Use when you need sanitized HTML structures for building schemas or further processing.
     """
     validate_url_scheme(body.url, allow_raw=True)
-    cfg = CrawlerRunConfig()
+    cfg = _load_untrusted_crawler_config(body.crawler_config)
     crawler = None
     try:
         crawler = await get_crawler(get_default_browser_config())
@@ -625,7 +634,8 @@ async def generate_html(
         raw_html = results[0].html
         from crawl4ai.utils import preprocess_html_for_schema
         processed_html = preprocess_html_for_schema(raw_html)
-        return JSONResponse({"html": processed_html, "url": body.url, "success": True})
+        response = {"html": processed_html, "url": body.url, "success": True}
+        return JSONResponse(apply_output_control(response, body.output_control))
     except Exception as e:
         raise HTTPException(500, detail=str(e))
     finally:
@@ -680,14 +690,20 @@ async def generate_screenshot(
     validate_url_scheme(body.url)
     crawler = None
     try:
-        cfg = CrawlerRunConfig(screenshot=True, screenshot_wait_for=body.screenshot_wait_for, wait_for_images=body.wait_for_images)
+        cfg = _load_untrusted_crawler_config(body.crawler_config)
+        cfg.screenshot = True
+        if body.screenshot_wait_for is not None:
+            cfg.screenshot_wait_for = body.screenshot_wait_for
+        if body.wait_for_images is not None:
+            cfg.wait_for_images = body.wait_for_images
         crawler = await get_crawler(get_default_browser_config())
         results = await crawler.arun(url=body.url, config=cfg)
         if not results[0].success:
             raise HTTPException(500, detail=results[0].error_message or "Crawl failed")
         screenshot_data = results[0].screenshot
         art = _store_artifact("png", base64.b64decode(screenshot_data))
-        return {"success": True, "screenshot": screenshot_data, **art}
+        response = {"success": True, **art}
+        return apply_output_control(response, body.output_control)
     except HTTPException:
         raise
     except Exception as e:
@@ -715,14 +731,16 @@ async def generate_pdf(
     validate_url_scheme(body.url)
     crawler = None
     try:
-        cfg = CrawlerRunConfig(pdf=True)
+        cfg = _load_untrusted_crawler_config(body.crawler_config)
+        cfg.pdf = True
         crawler = await get_crawler(get_default_browser_config())
         results = await crawler.arun(url=body.url, config=cfg)
         if not results[0].success:
             raise HTTPException(500, detail=results[0].error_message or "Crawl failed")
         pdf_data = results[0].pdf
         art = _store_artifact("pdf", pdf_data)
-        return {"success": True, "pdf": base64.b64encode(pdf_data).decode(), **art}
+        response = {"success": True, **art}
+        return apply_output_control(response, body.output_control)
     except HTTPException:
         raise
     except Exception as e:
@@ -795,13 +813,16 @@ async def execute_js(
         raise HTTPException(400, str(e))
     crawler = None
     try:
-        cfg = CrawlerRunConfig(js_code=body.scripts)
+        cfg = _load_untrusted_crawler_config(body.crawler_config)
+        cfg.js_code = body.scripts
         crawler = await get_crawler(get_default_browser_config())
         results = await crawler.arun(url=body.url, config=cfg)
         if not results[0].success:
             raise HTTPException(500, detail=results[0].error_message or "Crawl failed")
         data = results[0].model_dump()
-        return JSONResponse(data)
+        return JSONResponse(apply_output_control(data, body.output_control))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(500, detail=str(e))
     finally:
@@ -912,6 +933,11 @@ async def crawl(
     # check if all of the results are not successful
     if all(not result["success"] for result in results["results"]):
         raise HTTPException(500, f"Crawl request failed: {results['results'][0]['error_message']}")
+    if crawl_request.output_control:
+        results = results.copy()
+        results["results"] = apply_output_control_to_batch(
+            results["results"], crawl_request.output_control
+        )
     return JSONResponse(results)
 
 
@@ -958,7 +984,7 @@ async def stream_process(crawl_request: CrawlRequestWithHooks):
         headers["X-Hooks-Status"] = json.dumps(hooks_info['status']['status'])
     
     return StreamingResponse(
-        stream_results(crawler, gen),
+        stream_results(crawler, gen, crawl_request.output_control),
         media_type="application/x-ndjson",
         headers=headers,
     )

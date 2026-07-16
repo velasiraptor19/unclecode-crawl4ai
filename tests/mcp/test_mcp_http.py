@@ -45,18 +45,36 @@ async def main() -> None:
                         "md", "html", "screenshot", "pdf", "execute_js", "crawl", "ask",
                         "web_search", "camoufox_status", "camoufox_read", "camoufox_capture",
                     }
+                    by_name = {tool.name: tool for tool in tools.tools}
+                    for name in ("md", "html", "screenshot", "pdf", "execute_js"):
+                        properties = by_name[name].inputSchema["properties"]
+                        assert "crawler_config" in properties, name
+                        assert "output_control" in properties, name
+                    assert "output_control" in by_name["crawl"].inputSchema["properties"]
 
                 async def md():
                     data = payload(await session.call_tool(
-                        "md", {"url": "https://example.com", "f": "raw"}
+                        "md", {
+                            "url": "https://example.com",
+                            "f": "raw",
+                            "crawler_config": {"delay_before_return_html": 0},
+                            "output_control": {"content_limit": 128},
+                        }
                     ))
                     assert "error" not in data and data["success"] is True
                     assert "Example Domain" in data["markdown"]
+                    assert len(data["markdown"]) <= 128
+                    assert data["_output_meta"]["content_stats"]["markdown"]["has_more"]
 
                 async def html():
-                    data = payload(await session.call_tool("html", {"url": "https://example.com"}))
+                    data = payload(await session.call_tool("html", {
+                        "url": "https://example.com",
+                        "crawler_config": {"wait_until": "domcontentloaded"},
+                        "output_control": {"content_limit": 256},
+                    }))
                     assert "error" not in data and data["success"] is True
                     assert "Example Domain" in data["html"]
+                    assert len(data["html"]) <= 256
 
                 async def screenshot():
                     data = payload(await session.call_tool(
@@ -65,11 +83,13 @@ async def main() -> None:
                     ))
                     assert data["success"] is True and data["mime"] == "image/png"
                     assert data["artifact_id"] and data["size"] > 0
+                    assert "screenshot" not in data
 
                 async def pdf():
                     data = payload(await session.call_tool("pdf", {"url": "https://example.com"}))
                     assert data["success"] is True and data["mime"] == "application/pdf"
                     assert data["artifact_id"] and data["size"] > 0
+                    assert "pdf" not in data
 
                 async def execute_js_policy():
                     data = payload(await session.call_tool(
@@ -81,9 +101,48 @@ async def main() -> None:
                 async def crawl():
                     data = payload(await session.call_tool(
                         "crawl",
-                        {"urls": ["https://example.com"], "browser_config": {}, "crawler_config": {}},
+                        {
+                            "urls": ["https://example.com"],
+                            "browser_config": {},
+                            "crawler_config": {},
+                            "output_control": {
+                                "content_limit": 128,
+                                "max_links": 1,
+                                "exclude_fields": ["response_headers"],
+                            },
+                        },
                     ))
                     assert "error" not in data and data["results"][0]["success"] is True
+                    result = data["results"][0]
+                    assert len(result["html"]) <= 128
+                    assert "response_headers" not in result
+                    assert result["_output_meta"]["truncated"] is True
+
+                async def rejects_unsafe_crawler_config():
+                    data = payload(await session.call_tool(
+                        "html",
+                        {
+                            "url": "https://example.com",
+                            "crawler_config": {
+                                "deep_crawl_strategy": {
+                                    "type": "BFSDeepCrawlStrategy",
+                                    "params": {"max_depth": 50},
+                                }
+                            },
+                        },
+                    ))
+                    assert data.get("error") == 400, data
+                    assert "Rejected config" in str(data.get("detail")), data
+
+                async def rejects_unbounded_output():
+                    data = payload(await session.call_tool(
+                        "html",
+                        {
+                            "url": "https://example.com",
+                            "output_control": {"content_limit": 200001},
+                        },
+                    ))
+                    assert data.get("error") == 422, data
 
                 async def ask():
                     data = payload(await session.call_tool(
@@ -130,6 +189,8 @@ async def main() -> None:
                     ("pdf", pdf),
                     ("execute_js_default_policy", execute_js_policy),
                     ("crawl", crawl),
+                    ("unsafe_crawler_config_rejected", rejects_unsafe_crawler_config),
+                    ("unbounded_output_rejected", rejects_unbounded_output),
                     ("ask", ask),
                     ("web_search", web_search),
                     ("camoufox_status", camoufox_status),

@@ -29,16 +29,28 @@ def _position(text: str) -> int:
 def test_workflow_is_valid_yaml():
     assert yaml.safe_load(WORKFLOW)["jobs"]
     github_yaml = yaml.load(WORKFLOW, Loader=yaml.BaseLoader)
-    assert github_yaml["on"]["push"]["branches"] == ["aio-v0.9.2-web-stack-latest"]
+    assert github_yaml["on"]["push"]["branches"] == [
+        "aio-v0.9.2-web-stack-latest",
+        "aio-v0.9.2-mcp-config-output-control",
+    ]
     assert "workflow_dispatch" in github_yaml["on"]
 
 
 def test_current_release_ref_and_variant_fail_closed():
     assert "refs/heads/aio-v0.9.2-web-stack-latest" in WORKFLOW
+    assert "refs/heads/aio-v0.9.2-mcp-config-output-control" in WORKFLOW
     assert '"${INSTALL_TYPE}" != "all"' in WORKFLOW
     assert '"${ENABLE_GPU}" != "false"' in WORKFLOW
     assert "PRELOAD_MODELS=true" in WORKFLOW
     assert "gpu-preload" not in WORKFLOW
+
+
+def test_feature_branch_builds_candidate_but_cannot_promote_final_tags():
+    promotion = WORKFLOW.split(
+        "      - name: Promote exact tested digest to final tags", maxsplit=1
+    )[1]
+    assert "if: github.ref == 'refs/heads/aio-v0.9.2-web-stack-latest'" in promotion
+    assert "Final tags promoted: \\`no\\`" in WORKFLOW
 
 
 def test_offline_provenance_gate_precedes_build_and_is_triggered():

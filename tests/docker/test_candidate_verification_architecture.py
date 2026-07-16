@@ -77,7 +77,7 @@ def test_browser_contract_rejects_duplicate_playwright_revisions():
 
 
 def test_aio_packaging_revision_preserves_immutable_release_tags():
-    assert "AIO_IMAGE_REVISION: 2" in BUILD_WORKFLOW
+    assert "AIO_IMAGE_REVISION: 3" in BUILD_WORKFLOW
     assert "ARG AIO_IMAGE_REVISION=1" in DOCKERFILE
     assert "io.crawl4ai.aio.image-revision=$AIO_IMAGE_REVISION" in DOCKERFILE
     assert ":v${C4AI_VERSION}-r${AIO_IMAGE_REVISION}-aio-web-all-cpu-preload" in BUILD_WORKFLOW

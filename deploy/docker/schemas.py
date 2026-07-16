@@ -1,7 +1,38 @@
 from typing import Any, List, Optional, Dict
 from enum import Enum
-from pydantic import BaseModel, Field, HttpUrl, field_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 from utils import FilterType
+
+
+OUTPUT_EXCLUDABLE_FIELDS = frozenset({
+    "html", "cleaned_html", "fit_html", "extracted_content", "mhtml",
+    "markdown", "markdown.raw_markdown", "markdown.fit_markdown",
+    "markdown.fit_html", "markdown.markdown_with_citations",
+    "markdown.references_markdown", "links", "media", "tables",
+    "metadata", "response_headers", "network_requests", "console_messages",
+    "downloaded_files", "js_execution_result", "screenshot", "pdf",
+})
+
+
+class OutputControl(BaseModel):
+    """Bounded response pagination and field filtering for agent clients."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    content_offset: int = Field(default=0, ge=0, le=10_000_000)
+    content_limit: Optional[int] = Field(default=None, ge=1, le=200_000)
+    max_links: Optional[int] = Field(default=None, ge=0, le=1_000)
+    max_media: Optional[int] = Field(default=None, ge=0, le=1_000)
+    max_tables: Optional[int] = Field(default=None, ge=0, le=1_000)
+    exclude_fields: List[str] = Field(default_factory=list, max_length=32)
+
+    @field_validator("exclude_fields")
+    @classmethod
+    def validate_exclude_fields(cls, fields: List[str]) -> List[str]:
+        unknown = sorted(set(fields) - OUTPUT_EXCLUDABLE_FIELDS)
+        if unknown:
+            raise ValueError(f"unsupported output fields: {', '.join(unknown)}")
+        return list(dict.fromkeys(fields))
 
 
 class CrawlRequest(BaseModel):
@@ -16,6 +47,7 @@ class CrawlRequest(BaseModel):
             "to match against specific URLs. Takes precedence over crawler_config."
         ),
     )
+    output_control: Optional[OutputControl] = None
 
 
 class HookSpec(BaseModel):
@@ -70,6 +102,8 @@ class MarkdownRequest(BaseModel):
     c:   Optional[str] = Field("0",   description="Cache‑bust / revision counter")
     provider: Optional[str] = Field(None, description="LLM provider override (e.g., 'anthropic/claude-3-opus')")
     temperature: Optional[float] = Field(None, description="LLM temperature override (0.0-2.0)")
+    crawler_config: Optional[Dict] = Field(default_factory=dict)
+    output_control: Optional[OutputControl] = None
     # base_url removed: a request-supplied LLM endpoint was a credential-exfil
     # vector. The endpoint is derived server-side from the provider name.
 
@@ -79,11 +113,15 @@ class RawCode(BaseModel):
 
 class HTMLRequest(BaseModel):
     url: str
+    crawler_config: Optional[Dict] = Field(default_factory=dict)
+    output_control: Optional[OutputControl] = None
     
 class ScreenshotRequest(BaseModel):
     url: str
-    screenshot_wait_for: Optional[float] = 2
-    wait_for_images: Optional[bool] = False
+    screenshot_wait_for: Optional[float] = None
+    wait_for_images: Optional[bool] = None
+    crawler_config: Optional[Dict] = Field(default_factory=dict)
+    output_control: Optional[OutputControl] = None
     # output_path removed: callers never name a filesystem path (it was an
     # arbitrary-write -> RCE vector). The server writes to the sandboxed
     # artifact store and returns an opaque artifact_id.
@@ -91,6 +129,8 @@ class ScreenshotRequest(BaseModel):
 
 class PDFRequest(BaseModel):
     url: str
+    crawler_config: Optional[Dict] = Field(default_factory=dict)
+    output_control: Optional[OutputControl] = None
     # output_path removed (see ScreenshotRequest).
 
 
@@ -100,6 +140,8 @@ class JSEndpointRequest(BaseModel):
         ...,
         description="List of separated JavaScript snippets to execute"
     )
+    crawler_config: Optional[Dict] = Field(default_factory=dict)
+    output_control: Optional[OutputControl] = None
 
 
 class WebhookConfig(BaseModel):

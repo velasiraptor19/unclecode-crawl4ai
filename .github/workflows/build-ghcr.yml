@@ -18,6 +18,7 @@ on:
   push:
     branches:
       - aio-v0.9.2-web-stack-latest
+      - aio-v0.9.2-mcp-config-output-control
     paths:
       - Dockerfile
       - pyproject.toml
@@ -51,7 +52,7 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
   C4AI_VERSION: 0.9.2
-  AIO_IMAGE_REVISION: 2
+  AIO_IMAGE_REVISION: 3
   INSTALL_TYPE: ${{ inputs.install_type || 'all' }}
   ENABLE_GPU: ${{ inputs.enable_gpu || false }}
 
@@ -83,13 +84,16 @@ jobs:
             tests/mcp/test_mcp_http.py
           bash -n tests/docker/smoke-test.sh
 
-      - name: Require the tested release ref and variant
+      - name: Require a tested AIO ref and variant
         shell: bash
         run: |
           set -euo pipefail
+          case "${GITHUB_REF}" in
+            refs/heads/aio-v0.9.2-web-stack-latest|refs/heads/aio-v0.9.2-mcp-config-output-control) ;;
+            *) echo "Ref ${GITHUB_REF} is not an approved AIO build ref." >&2; exit 1 ;;
+          esac
           if [[ "${GITHUB_REF}" != "refs/heads/aio-v0.9.2-web-stack-latest" ]]; then
-            echo "Ref ${GITHUB_REF} cannot publish fixed v${C4AI_VERSION} tags." >&2
-            exit 1
+            echo "Ref ${GITHUB_REF} is candidate-only and cannot publish final tags."
           fi
           if [[ "${INSTALL_TYPE}" != "all" || "${ENABLE_GPU}" != "false" ]]; then
             echo "Only INSTALL_TYPE=all, ENABLE_GPU=false, PRELOAD_MODELS=true is tested for v${C4AI_VERSION}." >&2
@@ -226,6 +230,7 @@ jobs:
           test "${{ steps.smoke.outcome }}" = "success"
 
       - name: Promote exact tested digest to final tags
+        if: github.ref == 'refs/heads/aio-v0.9.2-web-stack-latest'
         id: promote
         shell: bash
         env:
@@ -293,6 +298,7 @@ jobs:
           echo "digest=${CANDIDATE_DIGEST}" >> "${GITHUB_OUTPUT}"
 
       - name: Record tested release evidence
+        if: github.ref == 'refs/heads/aio-v0.9.2-web-stack-latest'
         shell: bash
         env:
           FINAL_TAGS: ${{ steps.tags.outputs.final_tags }}
@@ -318,4 +324,17 @@ jobs:
             while IFS= read -r tag; do
               [[ -n "${tag}" ]] && echo "- \`${tag}\`"
             done <<< "${FINAL_TAGS}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Record tested feature candidate evidence
+        if: github.ref != 'refs/heads/aio-v0.9.2-web-stack-latest'
+        shell: bash
+        run: |
+          {
+            echo "## Verified Crawl4AI AIO feature candidate"
+            echo
+            echo "- Source ref: \`${GITHUB_REF}\`"
+            echo "- Source commit: \`${GITHUB_SHA}\`"
+            echo "- Candidate: \`${{ steps.tags.outputs.candidate }}@${{ steps.build.outputs.digest }}\`"
+            echo "- Final tags promoted: \`no\`"
           } >> "${GITHUB_STEP_SUMMARY}"
