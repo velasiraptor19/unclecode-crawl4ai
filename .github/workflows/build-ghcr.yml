@@ -63,6 +63,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
+      - name: Run pre-build AIO contract tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --no-cache-dir \
+            pytest==8.4.2 PyYAML==6.0.3
+          python -m pytest -q \
+            tests/docker/test_aio_camoufox_static.py \
+            tests/docker/test_aio_searxng_static.py \
+            tests/docker/test_candidate_verification_architecture.py \
+            tests/docker/test_build_ghcr_workflow.py
+          python -m py_compile \
+            deploy/docker/mcp_bridge.py \
+            tests/docker/verify_aio_rest.py \
+            tests/docker/verify_runtime.py \
+            tests/docker/verify_searxng.py \
+            tests/mcp/test_mcp_http.py
+          bash -n tests/docker/smoke-test.sh
+
       - name: Require the tested release ref and variant
         shell: bash
         run: |
@@ -165,11 +184,41 @@ jobs:
             AIO_CAMOUFOX_BROWSER_SHA256=${{ steps.provenance.outputs.camoufox_browser_sha256 }}
 
       - name: Run smoke, runtime, MCP, and browser tests against candidate digest
+        id: smoke
+        continue-on-error: true
         shell: bash
+        env:
+          SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/aio-candidate-verification
         run: |
           set -euo pipefail
           tests/docker/smoke-test.sh \
             "${{ steps.tags.outputs.candidate }}@${{ steps.build.outputs.digest }}"
+
+      - name: Publish complete candidate verification summary
+        if: always() && steps.build.outcome == 'success'
+        shell: bash
+        run: |
+          report="${RUNNER_TEMP}/aio-candidate-verification/report.md"
+          if [[ -f "${report}" ]]; then
+            cat "${report}" >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "Candidate verification did not produce a report." >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+      - name: Upload complete candidate verification evidence
+        if: always() && steps.build.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: aio-candidate-verification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/aio-candidate-verification
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Require complete candidate verification
+        if: always() && steps.build.outcome == 'success'
+        shell: bash
+        run: |
+          test "${{ steps.smoke.outcome }}" = "success"
 
       - name: Promote exact tested digest to final tags
         id: promote

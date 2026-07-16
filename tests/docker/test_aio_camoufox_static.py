@@ -15,6 +15,8 @@ AUTH = (ROOT / "deploy/docker/auth.py").read_text(encoding="utf-8")
 SUPERVISOR = (ROOT / "deploy/docker/supervisord.conf").read_text(encoding="utf-8")
 COMPOSE = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 WORKFLOW = (ROOT / ".github/workflows/build-ghcr.yml").read_text(encoding="utf-8")
+MCP_BRIDGE = (ROOT / "deploy/docker/mcp_bridge.py").read_text(encoding="utf-8")
+REST_VERIFY = (ROOT / "tests/docker/verify_aio_rest.py").read_text(encoding="utf-8")
 
 
 def test_latest_reviewed_camoufox_package_and_browser_are_consumed():
@@ -72,6 +74,21 @@ def test_final_image_imports_server_as_runtime_user_during_build():
 def test_aio_auth_dependency_supports_the_config_free_router_call():
     assert "token_dep = get_token_dependency()" in WEB_TOOLS
     assert "def get_token_dependency(config: Optional[Dict] = None)" in AUTH
+
+
+def test_get_mcp_tools_decode_json_once_for_every_http_method():
+    assert "def _response_payload" in MCP_BRIDGE
+    assert "return _response_payload(r)" in MCP_BRIDGE
+    assert 'return r.text if method == "GET" else r.json()' not in MCP_BRIDGE
+
+
+def test_rest_contract_isolated_from_mcp_bridge():
+    for path in (
+        "/md", "/html", "/screenshot", "/pdf", "/execute_js", "/crawl", "/ask",
+        "/web/search", "/camoufox/status", "/camoufox/read", "/camoufox/capture",
+    ):
+        assert path in REST_VERIFY
+    assert "failures.append" in REST_VERIFY
 
 
 def test_workflow_gates_and_labels_camoufox_provenance():

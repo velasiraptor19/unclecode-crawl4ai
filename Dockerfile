@@ -224,6 +224,7 @@ RUN CRAWL4AI_MODE=api crawl4ai-setup \
 RUN INSTALL_TYPE="$INSTALL_TYPE" PRELOAD_MODELS="$PRELOAD_MODELS" ENABLE_GPU="$ENABLE_GPU" python - <<'PY'
 import importlib.util
 import os
+import traceback
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -233,43 +234,86 @@ from camoufox.sync_api import Camoufox
 
 home = Path(os.environ["HOME"])
 browser_root = Path(os.environ["PLAYWRIGHT_BROWSERS_PATH"])
-expected_assets = ("chromium-", "chromium_headless_shell-", "firefox-", "webkit-", "ffmpeg-")
-installed_assets = tuple(path.name for path in browser_root.iterdir())
-for prefix in expected_assets:
-    assert any(name.startswith(prefix) for name in installed_assets), f"missing Playwright asset: {prefix}"
+failures = []
 
-with sync_playwright() as playwright:
-    for browser_name in ("chromium", "firefox", "webkit"):
+
+def check(name, operation):
+    try:
+        operation()
+    except Exception as exc:
+        failures.append(f"{name}: {type(exc).__name__}: {exc}")
+        print(f"[FAIL] {name}")
+        traceback.print_exc()
+    else:
+        print(f"[PASS] {name}")
+
+
+def verify_assets():
+    expected = ("chromium-", "chromium_headless_shell-", "firefox-", "webkit-", "ffmpeg-")
+    installed = tuple(path.name for path in browser_root.iterdir())
+    missing = [prefix for prefix in expected if not any(name.startswith(prefix) for name in installed)]
+    assert not missing, f"missing Playwright assets: {missing}"
+
+
+def verify_playwright(browser_name):
+    with sync_playwright() as playwright:
         browser = getattr(playwright, browser_name).launch()
         page = browser.new_page()
         page.set_content(f"<title>{browser_name}</title>")
         assert page.title() == browser_name
         browser.close()
 
-with sync_patchright() as patchright:
-    browser = patchright.chromium.launch()
-    browser.close()
 
-with Camoufox(
-    headless=True,
-    os="linux",
-    fingerprint_preset=True,
-    webgl_config=("Intel", "Intel(R) HD Graphics, or similar"),
-    exclude_addons=list(DefaultAddons),
-) as browser:
-    page = browser.new_page()
-    page.set_content("<title>camoufox</title>")
-    assert page.title() == "camoufox"
+def verify_patchright():
+    with sync_patchright() as patchright:
+        browser = patchright.chromium.launch()
+        browser.close()
 
-if os.environ["PRELOAD_MODELS"] == "true" and os.environ["INSTALL_TYPE"] in {"all", "transformer"}:
+
+def verify_camoufox():
+    with Camoufox(
+        headless=True,
+        os="linux",
+        fingerprint_preset=True,
+        webgl_config=("Intel", "Intel(R) HD Graphics, or similar"),
+        exclude_addons=list(DefaultAddons),
+    ) as browser:
+        page = browser.new_page()
+        page.set_content("<title>camoufox</title>")
+        assert page.title() == "camoufox"
+
+
+def verify_huggingface_preload():
     assert (home / ".cache" / "huggingface").is_dir(), "preloaded Hugging Face models missing"
-if os.environ["INSTALL_TYPE"] in {"all", "torch"}:
+
+
+def verify_nltk_preload():
     assert (home / "nltk_data").is_dir(), "preloaded NLTK data missing"
-if os.environ["ENABLE_GPU"] == "false" and os.environ["INSTALL_TYPE"] in {"all", "torch"}:
+
+
+def verify_cpu_contract():
     import torch
+
     assert not torch.cuda.is_available(), "CPU image unexpectedly has an available CUDA device"
     for package in ("nvidia", "triton", "cuda"):
         assert importlib.util.find_spec(package) is None, f"CPU image contains {package}"
+
+
+check("playwright_assets", verify_assets)
+for name in ("chromium", "firefox", "webkit"):
+    check(f"playwright_{name}", lambda name=name: verify_playwright(name))
+check("patchright_chromium", verify_patchright)
+check("camoufox", verify_camoufox)
+
+if os.environ["PRELOAD_MODELS"] == "true" and os.environ["INSTALL_TYPE"] in {"all", "transformer"}:
+    check("huggingface_preload", verify_huggingface_preload)
+if os.environ["INSTALL_TYPE"] in {"all", "torch"}:
+    check("nltk_preload", verify_nltk_preload)
+if os.environ["ENABLE_GPU"] == "false" and os.environ["INSTALL_TYPE"] in {"all", "torch"}:
+    check("cpu_package_contract", verify_cpu_contract)
+
+if failures:
+    raise AssertionError("build runtime failures:\n- " + "\n- ".join(failures))
 PY
 
 USER root

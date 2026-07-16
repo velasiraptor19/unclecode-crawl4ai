@@ -53,6 +53,14 @@ def _service_auth_headers() -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _response_payload(response: httpx.Response) -> Any:
+    """Return one decoded payload for every HTTP method without double JSON encoding."""
+    content_type = response.headers.get("content-type", "").partition(";")[0].strip().lower()
+    if content_type == "application/json" or content_type.endswith("+json"):
+        return response.json()
+    return response.text
+
+
 def _make_http_proxy(base_url: str, route, *, timeout: float | None = None):
     method = list(route.methods - {"HEAD", "OPTIONS"})[0]
     async def proxy(**kwargs):
@@ -74,10 +82,10 @@ def _make_http_proxy(base_url: str, route, *, timeout: float | None = None):
                     else await client.request(method, url, json=kwargs, headers=headers)
                 )
                 r.raise_for_status()
-                return r.text if method == "GET" else r.json()
+                return _response_payload(r)
             except httpx.HTTPStatusError as e:
                 # surface FastAPI error details instead of plain 500
-                raise HTTPException(e.response.status_code, e.response.text)
+                raise HTTPException(e.response.status_code, _response_payload(e.response))
             except httpx.TimeoutException:
                 raise HTTPException(504, "upstream request timed out")
     return proxy
