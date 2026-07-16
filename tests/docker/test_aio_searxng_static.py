@@ -46,12 +46,14 @@ def test_searxng_runs_as_appuser_on_lan_port_with_writable_cache():
     assert "user=appuser" in block
     assert '"8080:8080"' in COMPOSE
     assert "/var/cache/searxng:uid=999,gid=999,mode=0700" in COMPOSE
+    assert "INSTALL_TYPE: ${INSTALL_TYPE:-all}" in COMPOSE
+    assert "PRELOAD_MODELS: ${PRELOAD_MODELS:-true}" in COMPOSE
 
 
 def test_smoke_covers_health_config_real_search_and_duplicate_venv():
     assert "verify_searxng.py" in SMOKE
     verify = (ROOT / "tests/docker/verify_searxng.py").read_text(encoding="utf-8")
-    for contract in ("/healthz", "/config", '"format": "json"', '"engines": "wikipedia"'):
+    for contract in ("/healthz", "/config", '"format": "json"', '"brave"', '"duckduckgo"'):
         assert contract in verify
     assert 'Path("/usr/local/searxng/.venv")' in verify
     assert "unresponsive_engines" in verify

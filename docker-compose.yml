@@ -62,7 +62,8 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        INSTALL_TYPE: ${INSTALL_TYPE:-default}
+        INSTALL_TYPE: ${INSTALL_TYPE:-all}
+        PRELOAD_MODELS: ${PRELOAD_MODELS:-true}
         ENABLE_GPU: ${ENABLE_GPU:-false}
     
     # Inherit shared config

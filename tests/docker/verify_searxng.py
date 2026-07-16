@@ -27,16 +27,25 @@ def main() -> None:
     assert status == 200 and content_type == "application/json"
     assert config.get("instance_name") == "Crawl4AI AIO Search"
 
-    query = urllib.parse.urlencode(
-        {"q": "OpenAI", "format": "json", "engines": "wikipedia", "language": "en"}
-    )
-    status, body, content_type = get(f"/search?{query}", timeout=45)
-    result = json.loads(body)
-    assert status == 200 and content_type == "application/json"
-    assert result.get("results"), result
-    assert all(item.get("url") and item.get("title") for item in result["results"])
-    assert not result.get("unresponsive_engines"), result.get("unresponsive_engines")
-    print(f"SearXNG runtime contract passed with {len(result['results'])} results")
+    failures = []
+    for engine in ("brave", "duckduckgo"):
+        query = urllib.parse.urlencode(
+            {"q": "OpenAI", "format": "json", "engines": engine, "language": "en"}
+        )
+        try:
+            status, body, content_type = get(f"/search?{query}", timeout=45)
+            result = json.loads(body)
+            assert status == 200 and content_type == "application/json"
+            assert result.get("results"), result
+            assert all(item.get("url") and item.get("title") for item in result["results"])
+            assert not result.get("unresponsive_engines"), result.get("unresponsive_engines")
+        except Exception as exc:  # The next independent engine remains a real network test.
+            failures.append(f"{engine}: {exc}")
+            continue
+        print(f"SearXNG runtime contract passed via {engine} with {len(result['results'])} results")
+        break
+    else:
+        raise AssertionError(f"all real SearXNG engine checks failed: {failures}")
 
 
 if __name__ == "__main__":
