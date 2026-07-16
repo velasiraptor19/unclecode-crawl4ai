@@ -22,7 +22,8 @@ def test_latest_reviewed_camoufox_package_and_browser_are_consumed():
     assert package["version"] == "0.6.0"
     assert f'"cloverlabs-camoufox=={package["version"]}"' in PYPROJECT
     assert f'name = "cloverlabs-camoufox"\nversion = "{package["version"]}"' in UV_LOCK
-    assert 'name = "playwright"\nversion = "1.61.0"' in UV_LOCK
+    assert '"playwright==1.60.0"' in PYPROJECT
+    assert 'name = "playwright"\nversion = "1.60.0"' in UV_LOCK
     assert f"ARG CAMOUFOX_BROWSER_VERSION={browser['version']}" in DOCKERFILE
     assert f"ARG CAMOUFOX_BROWSER_URL={browser['url']}" in DOCKERFILE
     assert f"ARG CAMOUFOX_BROWSER_SHA256={browser['sha256']}" in DOCKERFILE
