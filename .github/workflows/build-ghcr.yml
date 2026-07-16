@@ -79,6 +79,8 @@ jobs:
       - name: Verify locked AIO provenance offline
         id: provenance
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           scripts/aio-provenance-verify \

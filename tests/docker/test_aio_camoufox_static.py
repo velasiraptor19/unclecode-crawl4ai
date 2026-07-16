@@ -58,6 +58,13 @@ def test_agent_tool_surface_contains_search_and_camoufox_fallbacks():
 def test_workflow_gates_and_labels_camoufox_provenance():
     assert "aio/camoufox/**" in WORKFLOW
     assert "scripts/aio-camoufox-verify --online" in WORKFLOW
+    assert "GITHUB_TOKEN: ${{ github.token }}" in WORKFLOW
     assert "AIO_CAMOUFOX_PACKAGE_VERSION=" in WORKFLOW
     assert "AIO_CAMOUFOX_BROWSER_VERSION=" in WORKFLOW
     assert "AIO_CAMOUFOX_BROWSER_SHA256=" in WORKFLOW
+
+
+def test_camoufox_verifier_does_not_require_gh_login():
+    verifier = (ROOT / "scripts/aio-camoufox-verify").read_text(encoding="utf-8")
+    assert "https://api.github.com/" in verifier
+    assert '["gh", "api"' not in verifier
