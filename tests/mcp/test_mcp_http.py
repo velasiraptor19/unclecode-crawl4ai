@@ -135,14 +135,16 @@ async def main() -> None:
                     assert "Rejected config" in str(data.get("detail")), data
 
                 async def rejects_unbounded_output():
-                    data = payload(await session.call_tool(
+                    result = await session.call_tool(
                         "html",
                         {
                             "url": "https://example.com",
                             "output_control": {"content_limit": 200001},
                         },
-                    ))
-                    assert data.get("error") == 422, data
+                    )
+                    assert result.isError is True, result
+                    assert result.content and result.content[0].type == "text", result
+                    assert "greater than the maximum of 200000" in result.content[0].text
 
                 async def ask():
                     data = payload(await session.call_tool(
