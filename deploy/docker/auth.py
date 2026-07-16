@@ -118,13 +118,14 @@ def get_principal(request: Request) -> Optional[Dict]:
     return getattr(request.state, "principal", None)
 
 
-def get_token_dependency(config: Dict):
+def get_token_dependency(config: Optional[Dict] = None):
     """Backward-compatible dependency factory.
 
     Auth enforcement now lives in the AuthGateMiddleware (the outermost ASGI
     layer); by the time any route dependency runs, the request was already
     authenticated by the gate or rejected with 401. This dependency simply
-    surfaces the validated principal to handlers that declared `_td`.
+    surfaces the validated principal to handlers that declared `_td`. The
+    optional config argument is retained for callers using the legacy API.
     """
 
     def _principal(request: Request) -> Optional[Dict]:

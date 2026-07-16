@@ -11,6 +11,7 @@ UV_LOCK = (ROOT / "aio/runtime/uv.lock").read_text(encoding="utf-8")
 LOCK = json.loads((ROOT / "aio/camoufox/components.lock.json").read_text(encoding="utf-8"))
 WEB_TOOLS = (ROOT / "deploy/docker/aio_web_tools.py").read_text(encoding="utf-8")
 UTILS = (ROOT / "deploy/docker/utils.py").read_text(encoding="utf-8")
+AUTH = (ROOT / "deploy/docker/auth.py").read_text(encoding="utf-8")
 SUPERVISOR = (ROOT / "deploy/docker/supervisord.conf").read_text(encoding="utf-8")
 COMPOSE = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 WORKFLOW = (ROOT / ".github/workflows/build-ghcr.yml").read_text(encoding="utf-8")
@@ -66,6 +67,11 @@ def test_agent_tool_surface_contains_search_and_camoufox_fallbacks():
 def test_final_image_imports_server_as_runtime_user_during_build():
     final_appuser_block = DOCKERFILE.rsplit("USER appuser", 1)[1]
     assert 'python -c "import server; assert server.app;' in final_appuser_block
+
+
+def test_aio_auth_dependency_supports_the_config_free_router_call():
+    assert "token_dep = get_token_dependency()" in WEB_TOOLS
+    assert "def get_token_dependency(config: Optional[Dict] = None)" in AUTH
 
 
 def test_workflow_gates_and_labels_camoufox_provenance():
