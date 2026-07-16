@@ -1,0 +1,15 @@
+use_default_settings: true
+
+general:
+  instance_name: "Crawl4AI AIO Search"
+
+search:
+  formats:
+    - html
+    - json
+
+server:
+  secret_key: "aio-runtime-overridden-by-SEARXNG_SECRET"
+  image_proxy: true
+  limiter: false
+  public_instance: false
