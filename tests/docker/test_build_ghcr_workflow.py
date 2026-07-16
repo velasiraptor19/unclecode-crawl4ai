@@ -112,7 +112,9 @@ def test_existing_release_and_source_tags_fail_closed_on_digest_collision():
     assert 'done <<< "${PROTECTED_TAGS}"' in promotion
     assert "Refusing to replace protected tag" in promotion
     assert "inspect_status" in promotion
-    assert "manifest unknown|no such manifest|404 Not Found|: not found$" in promotion
+    assert "manifest unknown|no such manifest|404 Not Found" in promotion
+    assert '"${inspection}" != "ERROR: ${tag}: not found"' in promotion
+    assert "|: not found$" not in promotion
     assert "Refusing promotion after unexpected registry error" in promotion
 
 
