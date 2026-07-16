@@ -22,6 +22,7 @@ on:
       - Dockerfile
       - pyproject.toml
       - uv.lock
+      - aio/runtime/**
       - setup.py
       - requirements.txt
       - deploy/docker/**
@@ -38,6 +39,10 @@ on:
 permissions:
   contents: read
   packages: write
+
+concurrency:
+  group: build-ghcr-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
@@ -107,6 +112,10 @@ jobs:
           candidate="${image}:candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-all-cpu-preload"
           {
             echo "candidate=${candidate}"
+            echo "protected_tags<<EOF"
+            echo "${image}:v${C4AI_VERSION}-all-cpu-preload"
+            echo "${image}:sha-${GITHUB_SHA}-all-cpu-preload"
+            echo "EOF"
             echo "final_tags<<EOF"
             echo "${image}:latest"
             echo "${image}:all"
@@ -122,6 +131,7 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
+          pull: true
           push: true
           tags: ${{ steps.tags.outputs.candidate }}
           build-args: |
@@ -131,8 +141,6 @@ jobs:
             SOURCE_COMMIT=${{ github.sha }}
             AIO_PROVENANCE_INDEX_DIGEST=${{ steps.provenance.outputs.index_digest }}
             AIO_PROVENANCE_RELEASE_COMMIT=${{ steps.provenance.outputs.release_commit }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max,ignore-error=true,scope=${{ github.ref_name }}
 
       - name: Run smoke, runtime, MCP, and browser tests against candidate digest
         shell: bash
@@ -147,19 +155,63 @@ jobs:
         env:
           CANDIDATE_IMAGE: ${{ steps.tags.outputs.candidate }}
           CANDIDATE_DIGEST: ${{ steps.build.outputs.digest }}
+          PROTECTED_TAGS: ${{ steps.tags.outputs.protected_tags }}
           FINAL_TAGS: ${{ steps.tags.outputs.final_tags }}
         run: |
           set -euo pipefail
+
+          require_current_branch_tip() {
+            local remote_sha
+            remote_sha="$(git ls-remote --exit-code --refs origin "${GITHUB_REF}" | awk 'NR == 1 {print $1}')"
+            if [[ -z "${remote_sha}" || "${remote_sha}" != "${GITHUB_SHA}" ]]; then
+              echo "Refusing promotion: ${GITHUB_SHA} is not the current ${GITHUB_REF} tip (${remote_sha:-missing})." >&2
+              exit 1
+            fi
+          }
+
+          digest_from_inspection() {
+            local tag="$1" inspection="$2" digest
+            digest="$(awk '$1 == "Digest:" {print $2; exit}' <<< "${inspection}")"
+            if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "Could not determine registry digest for ${tag}." >&2
+              exit 1
+            fi
+            printf '%s\n' "${digest}"
+          }
+
+          # Cancellation is advisory; an older run must also fail on a moved ref.
+          require_current_branch_tip
+
+          while IFS= read -r tag; do
+            [[ -n "${tag}" ]] || continue
+            set +e
+            inspection="$(docker buildx imagetools inspect "${tag}" 2>&1)"
+            inspect_status=$?
+            set -e
+            if [[ ${inspect_status} -eq 0 ]]; then
+              existing_digest="$(digest_from_inspection "${tag}" "${inspection}")"
+              if [[ "${existing_digest}" != "${CANDIDATE_DIGEST}" ]]; then
+                echo "Refusing to replace protected tag ${tag}: ${existing_digest} != ${CANDIDATE_DIGEST}." >&2
+                exit 1
+              fi
+            elif ! grep -Eqi 'manifest unknown|no such manifest|404 Not Found' <<< "${inspection}"; then
+              echo "Refusing promotion after unexpected registry error for ${tag}: ${inspection}" >&2
+              exit 1
+            fi
+          done <<< "${PROTECTED_TAGS}"
+
           source_ref="${CANDIDATE_IMAGE}@${CANDIDATE_DIGEST}"
           promotion_args=()
           while IFS= read -r tag; do
             [[ -n "${tag}" ]] && promotion_args+=(--tag "${tag}")
           done <<< "${FINAL_TAGS}"
+          require_current_branch_tip
           docker buildx imagetools create --prefer-index=false "${promotion_args[@]}" "${source_ref}"
 
           while IFS= read -r tag; do
             [[ -n "${tag}" ]] || continue
-            promoted_digest="sha256:$(docker buildx imagetools inspect "${tag}" --raw | sha256sum | cut -d ' ' -f 1)"
+            inspection="$(docker buildx imagetools inspect "${tag}")"
+            promoted_digest="$(digest_from_inspection "${tag}" "${inspection}")"
             test "${promoted_digest}" = "${CANDIDATE_DIGEST}"
           done <<< "${FINAL_TAGS}"
           echo "digest=${CANDIDATE_DIGEST}" >> "${GITHUB_OUTPUT}"

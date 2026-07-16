@@ -20,7 +20,7 @@ Every published image must:
 - install OS packages only as root and run the final application as `appuser`;
 - pass an API health check using the default Docker runtime filesystem;
 - contain only its declared browser and model assets after build cleanup; and
-- carry a tag containing the Crawl4AI release and a source commit tag.
+- carry a protected release tag and a protected source commit tag.
 
 ## Initial Variants
 
@@ -30,8 +30,10 @@ Every published image must:
 | `all-gpu-preload` | `INSTALL_TYPE=all`, `PRELOAD_MODELS=true`, `ENABLE_GPU=true`, CUDA-compatible PyTorch wheels | NVIDIA runtime hosts only |
 
 For each canonical suffix, publish a release tag such as
-`v0.9.2-all-cpu-preload` and an immutable source tag such as
-`sha-<commit>-all-cpu-preload`. The short `all` tag is an explicit alias for
+`v0.9.2-all-cpu-preload` and a protected source tag such as
+`sha-<commit>-all-cpu-preload`. The workflow enforces immutability for both:
+an existing protected tag may be reused only when it already names the tested
+digest, and a digest mismatch fails the release. The short `all` tag is an explicit alias for
 the selected default variant, never an unspecified mixture of CPU and GPU
 dependencies.
 
@@ -41,17 +43,26 @@ run against that candidate's immutable digest. Only after all checks pass does
 one metadata-only promotion attach mutable, v0.9.2 release, and full source-SHA
 tags to that exact digest; the image is not rebuilt during promotion. The image
 labels and workflow summary record the locked upstream index digest and release
-commit from `aio/provenance/components.lock.json`.
+commit from `aio/provenance/components.lock.json`. Workflow concurrency cancels
+superseded runs, and promotion reads the authoritative remote branch tip again
+immediately before moving any tag. Therefore `latest`, `all`, and
+`all-cpu-preload` can move only for the current publishing-branch tip.
 
 ## v0.9.2 dependency lock identity
 
-The published v0.9.2 project metadata depends on
-`unclecode-litellm==1.81.13`. The repaired uv lock replaces the stale upstream
-`litellm>=1.53.1` identity with that published PyPI distribution. It also
-replaces stale `tf-playwright-stealth` with the declared
-`playwright-stealth>=2.0.0` distribution. The fork's published constraints move
-the transitive `openai` lock from 1.93.3 to 2.45.0 and add `fastuuid`; all
-third-party lock entries resolve from package registries.
+The published image uses the dedicated Python 3.12 AIO project at
+`aio/runtime/pyproject.toml` and its adjacent `uv.lock`. This leaves the
+library's cross-version development lock semantics unchanged. The AIO project
+locks the local `crawl4ai[all]` package together with every API dependency and
+pins `torch==2.13.0+cpu`, `torchvision==0.28.0+cpu`, and
+`torchaudio==2.11.0+cpu` to PyTorch's explicit CPU wheel index. The lock has no
+CUDA, NVIDIA, or Triton distributions.
+
+The Docker build runs `uv sync --frozen` into the appuser virtual environment.
+It ships the lock as `/opt/crawl4ai/aio-runtime.uv.lock`; smoke verification
+compares every installed distribution version with that lock, rejects
+unlocked distributions, checks direct locked dependencies, and validates
+installed dependency metadata in addition to running `pip check`.
 
 The long form requested by operators,
 `install-type-all-with-cpu-preload-true-gpu-false-without-cuda-triton`, is a
@@ -73,9 +84,8 @@ variant therefore cannot produce a meaningfully different runtime image.
   `python -m playwright install-deps` executed as root.
 - Browser payloads are installed separately as `appuser` into the persistent
   `PLAYWRIGHT_BROWSERS_PATH`.
-- CPU images install `torch`, `torchvision`, and `torchaudio` from PyTorch's
-  official CPU wheel index before installing Crawl4AI extras. The subsequent
-  Crawl4AI install must retain those already-resolved CPU packages.
+- CPU images resolve `torch`, `torchvision`, and `torchaudio` only from
+  PyTorch's explicit CPU wheel index in the frozen AIO runtime lock.
 - GPU images select their CUDA wheel index and host-runtime contract explicitly.
 
 ## Runtime Verification Matrix
@@ -86,7 +96,7 @@ layers, satisfies these checks:
 1. Start the default `CMD` with the normal Docker runtime filesystem.
 2. Wait for the Docker health check and verify the API health endpoint.
 3. Verify `gunicorn` is launched from `/home/appuser/.venv/bin`.
-4. Run `pip check` from the appuser virtual environment.
+4. Run `pip check` and compare all installed versions with the shipped AIO lock.
 5. Launch Chromium, Firefox, and WebKit as appuser.
 6. Run one Crawl4AI crawl as appuser.
 7. For CPU images, assert CUDA/Triton package directories are absent and
@@ -99,6 +109,11 @@ Do not remove preloaded Hugging Face models, NLTK data, or declared Playwright
 browsers. They are runtime assets, not caches.
 
 Remove transient files in the same layer in which they are created whenever
-possible. The final cleanup may remove apt indexes, apt archives, build source,
-pip caches, package-manager logs, font cache, and setup-generated Crawl4AI
-state only after all build verification has completed.
+possible. The final cleanup removes the build-only uv executable, uv/pip
+caches, apt indexes, apt archives, build source, package-manager logs, font
+cache, and setup-generated Crawl4AI state only after build verification.
+
+The AIO image intentionally remains an extensible toolkit. Its existing OS
+packages, including `build-essential`, `wget`, `git`, `cmake`, `pkg-config`,
+`python3-dev`, `libjpeg-dev`, `gnupg`, and architecture-specific OpenBLAS/OpenMP
+development packages, remain available in the final image.

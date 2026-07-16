@@ -3,16 +3,73 @@
 import asyncio
 import importlib.util
 import os
+import re
+import tomllib
+from collections import defaultdict
 from pathlib import Path
-from importlib.metadata import version
+from importlib.metadata import distributions, version
 
 import torch
 from crawl4ai import AsyncWebCrawler, BrowserConfig
+from packaging.requirements import Requirement
 from playwright.sync_api import sync_playwright
 
 
 HOME = Path(os.environ["HOME"])
 BROWSER_ROOT = Path(os.environ["PLAYWRIGHT_BROWSERS_PATH"])
+RUNTIME_LOCK = Path("/opt/crawl4ai/aio-runtime.uv.lock")
+
+
+def canonical_name(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def verify_locked_environment() -> None:
+    lock = tomllib.loads(RUNTIME_LOCK.read_text(encoding="utf-8"))
+    locked_versions: dict[str, set[str]] = defaultdict(set)
+    runtime_dependencies: set[str] = set()
+    for package in lock["package"]:
+        name = canonical_name(package["name"])
+        locked_versions[name].add(package["version"])
+        if name == "crawl4ai-aio-runtime":
+            runtime_dependencies = {
+                canonical_name(dependency["name"])
+                for dependency in package.get("dependencies", ())
+            }
+
+    installed = {
+        canonical_name(distribution.metadata["Name"]): distribution
+        for distribution in distributions()
+    }
+    unexpected = sorted(set(installed) - set(locked_versions))
+    assert not unexpected, f"installed distributions absent from runtime lock: {unexpected}"
+
+    mismatches = []
+    for name, distribution in installed.items():
+        if distribution.version not in locked_versions[name]:
+            mismatches.append(
+                f"{name}=={distribution.version} not in {sorted(locked_versions[name])}"
+            )
+    assert not mismatches, f"installed versions differ from runtime lock: {mismatches}"
+
+    missing_direct = sorted(runtime_dependencies - set(installed))
+    assert not missing_direct, f"locked direct runtime dependencies missing: {missing_direct}"
+
+    broken = []
+    for name, distribution in installed.items():
+        for requirement_text in distribution.requires or ():
+            requirement = Requirement(requirement_text)
+            if requirement.marker and not requirement.marker.evaluate({"extra": ""}):
+                continue
+            dependency_name = canonical_name(requirement.name)
+            dependency = installed.get(dependency_name)
+            if dependency is None:
+                broken.append(f"{name} requires missing {requirement}")
+            elif requirement.specifier and dependency.version not in requirement.specifier:
+                broken.append(
+                    f"{name} requires {requirement}, installed {dependency.version}"
+                )
+    assert not broken, f"runtime dependency metadata is inconsistent: {broken}"
 
 
 def verify_browser_assets() -> None:
@@ -46,6 +103,7 @@ async def verify_crawl() -> None:
 
 def main() -> None:
     assert version("Crawl4AI") == "0.9.2"
+    verify_locked_environment()
     assert (HOME / ".cache" / "huggingface").is_dir(), "preloaded Hugging Face model missing"
     assert (HOME / "nltk_data").is_dir(), "preloaded NLTK data missing"
     verify_browser_assets()

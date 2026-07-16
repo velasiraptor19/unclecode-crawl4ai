@@ -30,18 +30,18 @@ ENV PYTHONFAULTHANDLER=1 \
     REDIS_PORT=6379
 
 ARG PYTHON_VERSION=3.12
-ARG INSTALL_TYPE=default
+ARG INSTALL_TYPE=all
 ARG ENABLE_GPU=false
-ARG PRELOAD_MODELS=false
+ARG PRELOAD_MODELS=true
 ARG TARGETARCH
-ARG TORCH_VERSION=2.13.0
-ARG TORCHVISION_VERSION=0.28.0
-ARG TORCHAUDIO_VERSION=2.11.0
+ARG UV_VERSION=0.11.25
 
 # Redis version — pinned to a CVE-patched release by default.
 # Override with --build-arg REDIS_VERSION="" for latest, or
 # --build-arg REDIS_VERSION="6:7.2.7-1rl1~bookworm1" for a specific version.
 ARG REDIS_VERSION="6:7.2.7-1rl1~bookworm1"
+
+RUN test "$INSTALL_TYPE" = "all" && test "$ENABLE_GPU" = "false"
 
 LABEL maintainer="unclecode"
 LABEL description="🔥🕷️ Crawl4AI: Open-source LLM Friendly Web Crawler & scraper"
@@ -118,11 +118,10 @@ fi \
 RUN groupadd --system --gid 999 appuser \
     && useradd --no-log-init --system --uid 999 --gid 999 --home-dir /home/appuser appuser
 
-# Create the appuser home, virtualenv, and cache directories up front so
+# Create the appuser home and cache directories up front so
 # Python packages, Playwright browsers, and preloaded models live in the same
 # user-owned location that runtime will use.
 RUN mkdir -p /home/appuser/.cache/ms-playwright /home/appuser/.crawl4ai ${APP_HOME} \
-    && python -m venv /home/appuser/.venv \
     && chown -R appuser:appuser /home/appuser ${APP_HOME}
 
 ENV PATH=/home/appuser/.venv/bin:$PATH
@@ -131,29 +130,14 @@ WORKDIR ${APP_HOME}
 
 COPY --chown=appuser:appuser . /tmp/project/
 
+RUN python -m pip install --no-cache-dir "uv==${UV_VERSION}"
+
 USER appuser
 
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r /tmp/project/deploy/docker/requirements.txt \
-    && if { [ "$INSTALL_TYPE" = "all" ] || [ "$INSTALL_TYPE" = "torch" ]; } && [ "$ENABLE_GPU" = "false" ]; then \
-        pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
-            "torch==${TORCH_VERSION}+cpu" \
-            "torchvision==${TORCHVISION_VERSION}+cpu" \
-            "torchaudio==${TORCHAUDIO_VERSION}+cpu" ; \
-    fi \
-    && if [ "$INSTALL_TYPE" = "all" ] ; then \
-        pip install --no-cache-dir "/tmp/project[all]" torchvision torchaudio ; \
-    elif [ "$INSTALL_TYPE" = "torch" ] ; then \
-        pip install --no-cache-dir "/tmp/project[torch]" torchvision torchaudio ; \
-    elif [ "$INSTALL_TYPE" = "transformer" ] ; then \
-        pip install --no-cache-dir "/tmp/project[transformer]" ; \
-    else \
-        pip install --no-cache-dir "/tmp/project" ; \
-    fi \
-    && if [ "$INSTALL_TYPE" = "all" ] || [ "$INSTALL_TYPE" = "torch" ] ; then \
-        python -m nltk.downloader punkt stopwords ; \
-    fi \
-    && if [ "$PRELOAD_MODELS" = "true" ] && { [ "$INSTALL_TYPE" = "all" ] || [ "$INSTALL_TYPE" = "transformer" ]; }; then \
+RUN UV_PROJECT_ENVIRONMENT=/home/appuser/.venv UV_CACHE_DIR=/tmp/uv-cache \
+        uv sync --project /tmp/project/aio/runtime --frozen --no-dev --no-editable \
+    && python -m nltk.downloader punkt stopwords \
+    && if [ "$PRELOAD_MODELS" = "true" ]; then \
         python -m crawl4ai.model_loader ; \
     else \
         echo "Skipping model preload during image build"; \
@@ -219,6 +203,7 @@ USER root
 # package index. Keep indexes until Playwright's root-only dependency install
 # has finished, then clean every apt cache exactly once.
 RUN apt-get clean \
+    && python -m pip uninstall -y uv \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /root/.cache/pip \
     && rm -rf /var/log/apt /var/log/dpkg.log /var/log/fontconfig.log /var/cache/fontconfig \
     && rm -rf /tmp/* /var/tmp/* \
@@ -227,6 +212,9 @@ RUN apt-get clean \
 
 # Copy application code
 COPY --chown=root:root deploy/docker/* ${APP_HOME}/
+
+RUN mkdir -p /opt/crawl4ai
+COPY --chown=root:root aio/runtime/uv.lock /opt/crawl4ai/aio-runtime.uv.lock
 
 # copy the playground + any future static assets
 COPY --chown=root:root deploy/docker/static ${APP_HOME}/static

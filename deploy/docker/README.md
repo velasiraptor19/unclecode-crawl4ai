@@ -3,7 +3,7 @@
 ## Table of Contents
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
-  - [Option 1: Using Pre-built Docker Hub Images (Recommended)](#option-1-using-pre-built-docker-hub-images-recommended)
+  - [Option 1: Using the Pre-built AIO Image (Recommended)](#option-1-using-the-pre-built-aio-image-recommended)
   - [Option 2: Using Docker Compose](#option-2-using-docker-compose)
   - [Option 3: Manual Local Build & Run](#option-3-manual-local-build--run)
 - [Dockerfile Parameters](#dockerfile-parameters)
@@ -51,22 +51,22 @@ Before we dive in, make sure you have:
 
 ## Installation
 
-We offer several ways to get the Crawl4AI server running. The quickest way is to use our pre-built Docker Hub images.
+We offer several ways to get the Crawl4AI server running. The quickest way is to use the pre-built AIO image from GHCR.
 
-### Option 1: Using Pre-built Docker Hub Images (Recommended)
+### Option 1: Using the Pre-built AIO Image (Recommended)
 
-Pull and run images directly from Docker Hub without building locally.
+Pull and run the tested CPU AIO image directly from GHCR without building locally.
 
 #### 1. Pull the Image
 
-Our latest stable release is `0.9.2`. Images are built with multi-arch manifests, so Docker automatically pulls the correct version for your system.
+The current AIO release is `0.9.2` with all features and models preloaded for CPU use.
 
 ```bash
-# Pull the latest stable version (0.9.2)
-docker pull unclecode/crawl4ai:0.8.6
+# Pull the protected v0.9.2 AIO release
+docker pull ghcr.io/unclecode/crawl4ai:v0.9.2-all-cpu-preload
 
-# Or use the latest tag
-docker pull unclecode/crawl4ai:latest
+# Or use the mutable current AIO alias
+docker pull ghcr.io/unclecode/crawl4ai:latest
 ```
 
 #### 2. Setup Environment (API Keys)
@@ -100,7 +100,7 @@ EOL
       -p 11235:11235 \
       --name crawl4ai \
       --shm-size=1g \
-      unclecode/crawl4ai:0.8.6
+      ghcr.io/unclecode/crawl4ai:v0.9.2-all-cpu-preload
     ```
 
 *   **With LLM support:**
@@ -111,7 +111,7 @@ EOL
       --name crawl4ai \
       --env-file .llm.env \
       --shm-size=1g \
-      unclecode/crawl4ai:0.8.6
+      ghcr.io/unclecode/crawl4ai:v0.9.2-all-cpu-preload
     ```
 
 > The server will be available at `http://localhost:11235`. Visit `/playground` to access the interactive testing interface.
@@ -122,14 +122,13 @@ EOL
 docker stop crawl4ai && docker rm crawl4ai
 ```
 
-#### Docker Hub Versioning Explained
+#### GHCR AIO Versioning Explained
 
-*   **Image Name:** `unclecode/crawl4ai`
-*   **Tag Format:** `LIBRARY_VERSION[-SUFFIX]` (e.g., `0.7.0-r1`)
-    *   `LIBRARY_VERSION`: The semantic version of the core `crawl4ai` Python library
-    *   `SUFFIX`: Optional tag for release candidates (``) and revisions (`r1`)
-*   **`latest` Tag:** Points to the most recent stable version
-*   **Multi-Architecture Support:** All images support both `linux/amd64` and `linux/arm64` architectures through a single tag
+*   **Image Name:** `ghcr.io/unclecode/crawl4ai`
+*   **Release Tag:** `v0.9.2-all-cpu-preload`
+*   **Source Tag:** `sha-<full-commit>-all-cpu-preload`
+*   **Mutable Aliases:** `latest`, `all`, and `all-cpu-preload` point to the current tested AIO build
+*   **Protected Tags:** Existing release and source tags cannot be replaced with a different digest by the publishing workflow
 
 ### Option 2: Using Docker Compose
 
@@ -180,11 +179,10 @@ The system automatically selects the appropriate API key based on the provider.
 
 The `docker-compose.yml` file in the project root provides a simplified approach that automatically handles architecture detection using buildx.
 
-*   **Run Pre-built Image from Docker Hub:**
+*   **Run the Pre-built AIO Image from GHCR:**
     ```bash
-    # Pulls and runs the release candidate from Docker Hub
-    # Automatically selects the correct architecture
-    IMAGE=unclecode/crawl4ai:0.8.6 docker compose up -d
+    # Pulls and runs the protected v0.9.2 CPU AIO release from GHCR
+    IMAGE=ghcr.io/unclecode/crawl4ai:v0.9.2-all-cpu-preload docker compose up -d
     ```
 
 *   **Build and Run Locally:**
@@ -958,14 +956,14 @@ You can override the default `config.yml`.
           --env-file .llm.env \
           --shm-size=1g \
           -v $(pwd)/my-custom-config.yml:/app/config.yml \
-          unclecode/crawl4ai:latest # Or your specific tag
+          ghcr.io/unclecode/crawl4ai:v0.9.2-all-cpu-preload
         ```
 
     *   **Using `docker-compose.yml`:** Add a `volumes` section to the service definition:
         ```yaml
         services:
           crawl4ai-hub-amd64: # Or your chosen service
-            image: unclecode/crawl4ai:latest
+            image: ghcr.io/unclecode/crawl4ai:v0.9.2-all-cpu-preload
             profiles: ["hub-amd64"]
             <<: *base-config
             volumes:
